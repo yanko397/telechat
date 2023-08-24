@@ -1,0 +1,2 @@
+hugchat
+python-telegram-bot

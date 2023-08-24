@@ -1,0 +1,8 @@
+venv/
+.venv/
+cookies/
+__pycache__/
+
+config.json
+allowed_users.json
+log.txt
