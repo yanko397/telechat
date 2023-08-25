@@ -2,7 +2,7 @@ venv/
 .venv/
 cookies/
 __pycache__/
+logs/
 
 config.json
 allowed_users.json
-log.txt

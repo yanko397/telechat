@@ -17,7 +17,7 @@ os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # )
 
 COOKIE_PATH_DIR = 'cookies'
-LOGFILE = 'log.txt'
+LOGDIR = 'logs'
 MAX_TRIES = 5
 
 chatbot = None
@@ -50,9 +50,10 @@ def new_chatbot():
     return chatbot
 
 
-def log(sender, message):
+def log(user, sender, message):
     # TODO this is not thread safe
-    with open(LOGFILE, 'a', encoding='utf-8') as f:
+    os.makedirs(LOGDIR, exist_ok=True)
+    with open(os.path.join(LOGDIR, f'{user}.log'), 'a', encoding='utf-8') as f:
         f.write(f'================{sender}================\n{message}\n')
 
 
@@ -61,12 +62,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    log(update.effective_user.username, update.message.text)
-    if update.effective_user.username not in loader.load_allowed_users():
-        print(f'not allowed user {update.effective_user.username} tried to use bot')
+    user = update.effective_user.username
+    log(user, user, update.message.text)
+    # user not whitelisted
+    if user not in loader.load_allowed_users():
+        print(f'not allowed user {user} tried to use bot')
         return
+    # no message
     if not update.message.text:
         return
+
     tries_remaining = MAX_TRIES
     message = ''
     while not message and tries_remaining:
@@ -77,7 +82,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tries_remaining -= 1
     if not message and not tries_remaining:
         message = f'[bot]\nNur gibberish als Antwort auch nach {MAX_TRIES} Versuchen.. Sorry :( Kannst es aber gerne nochmal versuchen'
-    log(f'to {update.effective_user.username}', message)
+
+    log(user, 'hugchat', message)
     await context.bot.send_message(chat_id=update.effective_chat.id, text=message, reply_to_message_id=update.message.message_id)
 
 
