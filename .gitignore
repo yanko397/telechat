@@ -1,7 +1,8 @@
+__pycache__/
 venv/
 .venv/
 cookies/
-__pycache__/
+chatbots/
 logs/
 
 config.json

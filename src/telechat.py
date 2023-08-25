@@ -1,5 +1,6 @@
 import os
 import logging
+import pickle
 
 import loader
 
@@ -20,7 +21,7 @@ COOKIE_PATH_DIR = 'cookies'
 LOGDIR = 'logs'
 MAX_TRIES = 5
 
-chatbot = None
+chatbots = {}
 temperature = 0.9
 
 
@@ -41,13 +42,22 @@ def login():
 
 
 def new_chatbot():
-    print('trying to login..')
+    print('creating new chatbot! trying to login..')
     cookies = login()
-    print('logged in!')
-    print('init chatbot..')
+    print('logged in! init chatbot..')
     chatbot = hugchat.ChatBot(cookies=cookies)
     print('chatbot ready!')
     return chatbot
+
+
+def get_chatbot(user):
+    global chatbots
+    if user not in chatbots:
+        chatbots[user] = loader.load_chatbot(user)
+        if not chatbots[user]:
+            chatbots[user] = new_chatbot()
+            loader.save_chatbot(user, chatbots[user])
+    return chatbots[user]
 
 
 def log(user, sender, message):
@@ -71,7 +81,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # no message
     if not update.message.text:
         return
-
+    # try to get a response from the chatbot
+    chatbot = get_chatbot(user)
     tries_remaining = MAX_TRIES
     message = ''
     while not message and tries_remaining:
@@ -82,7 +93,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tries_remaining -= 1
     if not message and not tries_remaining:
         message = f'[bot]\nNur gibberish als Antwort auch nach {MAX_TRIES} Versuchen.. Sorry :( Kannst es aber gerne nochmal versuchen'
-
+    # send response back to telegram
     log(user, 'hugchat', message)
     await context.bot.send_message(chat_id=update.effective_chat.id, text=message, reply_to_message_id=update.message.message_id)
 
@@ -97,15 +108,12 @@ async def set_temperature(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args[0].replace('.', '', 1).isdigit() or not 0 < float(context.args[0]) <= 1:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nInvalid temperature: {context.args[0]}')
         return
+    # set temperature
     temperature = float(context.args[0])
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nTemperature set to {temperature}')
 
 
 def main():
-    global chatbot
-
-    # HuggingChat
-    chatbot = new_chatbot()
 
     # Telegram
     config = loader.load_telegram_config()
