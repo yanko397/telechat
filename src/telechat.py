@@ -18,8 +18,8 @@ def admin(update: Update, warning=True):
     return allowed
 
 
-def auth(update: Update):
-    if admin(update, warning=False):
+def auth(update: Update, ignore_admin=False):
+    if not ignore_admin and admin(update, warning=False):
         return True
     whitelist = loader.load_allowed_users()
     allowed = update.effective_user.username in whitelist or update.effective_user.id in whitelist
@@ -88,14 +88,56 @@ async def temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nTemperature set to {user_data.temperature}')
 
 
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def chatbot_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user not whitelisted
     if not auth(update):
         return
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     user_data = loader.update_user_data(update.effective_user.id)
     user_data.chatbot = loader.new_chatbot()
     loader.update_user_data(update.effective_user.id)
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nChatbot has been reset')
+
+
+async def whitelist_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # user not admin
+    if not admin(update):
+        return
+    # no user given, send error
+    if not context.args:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nPlease specify a username or id like this: /add [user]')
+        return
+    # add user to whitelist, send confirmation
+    added = loader.add_allowed_user(context.args[0])
+    if added:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nUser "{context.args[0]}" has been added to the whitelist')
+    else:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nUser "{context.args[0]}" is already whitelisted')
+
+
+async def whitelist_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # user not admin
+    if not admin(update):
+        return
+    # no user given, send error
+    if not context.args:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nPlease specify a username or id like this: /remove [user]')
+        return
+    # remove user from whitelist, send confirmation
+    removed = loader.remove_allowed_user(context.args[0])
+    if removed:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nUser "{context.args[0]}" has been removed from the whitelist')
+    else:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nUser "{context.args[0]}" was not whitelisted in the first place')
+
+
+async def whitelist_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # user not admin
+    if not admin(update):
+        return
+    # list whitelist, send confirmation
+    whitelist = '\n'.join(loader.load_allowed_users() or ['<empty>'])
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nWhitelisted users:\n{whitelist}')
 
 
 def main():
@@ -109,12 +151,18 @@ def main():
     # Telegram Handlers
     start_handler = CommandHandler('start', start)
     temp_handler = CommandHandler('temp', temp)
-    reset_handler = CommandHandler('reset', reset)
+    chatbot_reset_handler = CommandHandler('reset', chatbot_reset)
+    whitelist_add_handler = CommandHandler('add', whitelist_add)
+    whitelist_remove_handler = CommandHandler('remove', whitelist_remove)
+    whitelist_list_handler = CommandHandler('list', whitelist_list)
     message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), answer)
 
     app.add_handler(start_handler)
     app.add_handler(temp_handler)
-    app.add_handler(reset_handler)
+    app.add_handler(chatbot_reset_handler)
+    app.add_handler(whitelist_add_handler)
+    app.add_handler(whitelist_remove_handler)
+    app.add_handler(whitelist_list_handler)
     app.add_handler(message_handler)
 
     # Run

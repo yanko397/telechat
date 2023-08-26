@@ -40,6 +40,26 @@ def load_allowed_users() -> list:
         return []
 
 
+def add_allowed_user(user) -> bool:
+    allowed_users = load_allowed_users()
+    if user not in allowed_users:
+        allowed_users.append(user)
+        with open(ALLOWED_USERS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(allowed_users, f, indent=4)
+            return True
+    return False
+
+
+def remove_allowed_user(user) -> bool:
+    allowed_users = load_allowed_users()
+    if user in allowed_users:
+        allowed_users.remove(user)
+        with open(ALLOWED_USERS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(allowed_users, f, indent=4)
+            return True
+    return False
+
+
 def load_admins() -> list:
     if os.path.exists(ADMINS_FILE):
         with open(ADMINS_FILE, encoding='utf-8') as f:
