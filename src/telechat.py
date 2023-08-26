@@ -1,6 +1,4 @@
 import os
-import logging
-import pickle
 import threading
 
 import loader
@@ -13,11 +11,6 @@ from telegram import Update
 from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTypes, CommandHandler
 
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# logging.basicConfig(
-#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-#     level=logging.INFO
-# )
 
 COOKIE_PATH_DIR = 'cookies'
 LOGDIR = 'logs'
@@ -65,10 +58,10 @@ def update_user_data(user, save=True) -> UserData:
 
 
 def log(user, sender, message):
-    # TODO this is not thread safe
-    os.makedirs(LOGDIR, exist_ok=True)
-    with open(os.path.join(LOGDIR, f'{user}.log'), 'a', encoding='utf-8') as f:
-        f.write(f'================{sender}================\n{message}\n')
+    with lock:
+        os.makedirs(LOGDIR, exist_ok=True)
+        with open(os.path.join(LOGDIR, f'{user}.log'), 'a', encoding='utf-8') as f:
+            f.write(f'================{sender}================\n{message}\n')
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
