@@ -140,6 +140,10 @@ async def whitelist_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nWhitelisted users:\n{whitelist}')
 
 
+async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nUnknown command')
+
+
 def main():
     # Ensure logged in to hugchat
     loader.hugchat_login()
@@ -156,6 +160,7 @@ def main():
     whitelist_remove_handler = CommandHandler('remove', whitelist_remove)
     whitelist_list_handler = CommandHandler('list', whitelist_list)
     message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), answer)
+    unknown_handler = MessageHandler(filters.COMMAND, unknown)
 
     app.add_handler(start_handler)
     app.add_handler(temp_handler)
@@ -164,6 +169,7 @@ def main():
     app.add_handler(whitelist_remove_handler)
     app.add_handler(whitelist_list_handler)
     app.add_handler(message_handler)
+    app.add_handler(unknown_handler)
 
     # Run
     print('starting polling..')
