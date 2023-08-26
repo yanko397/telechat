@@ -7,3 +7,4 @@ logs/
 
 config.json
 allowed_users.json
+admins.json

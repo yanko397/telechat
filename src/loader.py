@@ -4,6 +4,7 @@ import pickle
 
 telegram_config_file = 'config.json'
 allowed_users_file = 'allowed_users.json'
+admins_file = 'admins.json'
 chatbots_dir = 'chatbots'
 
 
@@ -18,6 +19,14 @@ def load_telegram_config() -> dict:
 def load_allowed_users() -> list:
     if os.path.exists(allowed_users_file):
         with open(allowed_users_file, encoding='utf-8') as f:
+            return json.load(f)
+    else:
+        return []
+
+
+def load_admins() -> list:
+    if os.path.exists(admins_file):
+        with open(admins_file, encoding='utf-8') as f:
             return json.load(f)
     else:
         return []

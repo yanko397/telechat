@@ -1,5 +1,6 @@
 import os
 import threading
+from datetime import datetime
 
 import loader
 from user_data import UserData
@@ -47,38 +48,73 @@ def new_chatbot():
     return chatbot
 
 
-def update_user_data(user, save=True) -> UserData:
+def update_user_data(username: str, save=True) -> UserData:
     global users
     with lock:
-        if user not in users:
-            users[user] = loader.load_user_data(user) or UserData(new_chatbot())
+        if username not in users:
+            users[username] = loader.load_user_data(username) or UserData(new_chatbot())
         if save:
-            loader.save_user_data(user, users[user])
-    return users[user]
+            loader.save_user_data(username, users[username])
+    return users[username]
 
 
-def log(user, sender, message):
+def admin(update: Update, warning=True):
+    adminlist = loader.load_admins()
+    allowed = update.effective_user.username in adminlist or update.effective_user.id in adminlist
+    if warning and not allowed:
+        print(f'not allowed user {update.effective_user.username or update.effective_user.id} tried to do admin stuff')
+    return allowed
+
+
+def auth(update: Update):
+    if admin(update, warning=False):
+        return True
+    whitelist = loader.load_allowed_users()
+    allowed = update.effective_user.username in whitelist or update.effective_user.id in whitelist
+    if not allowed:
+        print(f'not allowed user {update.effective_user.username or update.effective_user.id} tried to use bot')
+    return allowed
+
+
+def log(filename: str, message: str, title: str = None, update: Update = None):
+    """Logs a message to a file in the LOGDIR directory.
+
+    title is prioritized over update
+    """
+    full_name = (update.effective_user.first_name + ' ' + update.effective_user.last_name).strip() if update else None
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    title = title or update.effective_user.username or update.effective_user.id + (f' ({full_name})' if full_name else '')
     with lock:
         os.makedirs(LOGDIR, exist_ok=True)
-        with open(os.path.join(LOGDIR, f'{user}.log'), 'a', encoding='utf-8') as f:
-            f.write(f'================{sender}================\n{message}\n')
+        with open(os.path.join(LOGDIR, f'{filename}.log'), 'a', encoding='utf-8') as f:
+            f.write(f'{timestamp} ================ {title} ================\n')
+            f.write(f'{message}\n')
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     user_data = update_user_data(update.effective_user.username)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"[bot]\nHi I'm hugchat :) write anything\n\nRight now you still need to be whitelisted to get a response though. I'll change that soon!\n\nCurrent temperature is {user_data.temperature}\n\nUpdate with: /temperature [temperature]")
+    auth_text = 'You are whitelisted! have fun :D'
+    not_auth_text = 'You are not whitelisted yet. Please ask the maker of this bot if you know them.'
+    text = (f"[bot]\n"
+            f"Hi I'm hugchat :) write anything\n\n"
+            f"{auth_text if auth(update) else not_auth_text}\n\n"
+            f"Current temperature is {user_data.temperature}\n"
+            f"Update with: /temperature [temperature]")
+    text += f"\n\nAdmin mode 🥳" if admin(update, warning=False) else ''
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
 
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user.username
     log(user, user, update.message.text)
     # user not whitelisted
-    if user not in loader.load_allowed_users():
-        print(f'not allowed user {user} tried to use bot')
+    if not auth(update):
         return
     # no message
     if not update.message.text:
         return
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     # try to get a response from the chatbot
     user_data = update_user_data(user)
     tries_remaining = MAX_TRIES
@@ -97,6 +133,9 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def temperature(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # user not whitelisted
+    if not auth(update):
+        return
     user = update.effective_user.username
     chat_id = update.effective_chat.id
     user_data = update_user_data(user)
