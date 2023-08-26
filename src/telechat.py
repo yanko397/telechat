@@ -37,7 +37,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Hi I'm hugchat :) write anything\n\n"
             f"{auth_text if auth(update) else not_auth_text}\n\n"
             f"Current temperature is {user_data.temperature}\n"
-            f"Update with: /temperature [temperature]")
+            f"Update with: /temp [temperature]")
     text += f"\n\nAdmin mode 🥳" if admin(update, warning=False) else ''
     await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
 
@@ -68,7 +68,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=message, reply_to_message_id=update.message.message_id)
 
 
-async def temperature(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user not whitelisted
     if not auth(update):
         return
@@ -76,7 +76,7 @@ async def temperature(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = loader.update_user_data(update.effective_user.id)
     # no temperature given, send current temperature
     if not context.args:
-        await context.bot.send_message(chat_id=chat_id, text=f'[bot]\nCurrent temperature is {user_data.temperature}\n\nUpdate with: /temperature [temperature]')
+        await context.bot.send_message(chat_id=chat_id, text=f'[bot]\nCurrent temperature is {user_data.temperature}\n\nUpdate with: /temp [temperature]')
         return
     # invalid temperature, send error
     if not context.args[0].replace('.', '', 1).isdigit() or not 0 < float(context.args[0]) <= 1:
@@ -86,6 +86,16 @@ async def temperature(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data.temperature = float(context.args[0])
     loader.update_user_data(update.effective_user.id)
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nTemperature set to {user_data.temperature}')
+
+
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # user not whitelisted
+    if not auth(update):
+        return
+    user_data = loader.update_user_data(update.effective_user.id)
+    user_data.chatbot = loader.new_chatbot()
+    loader.update_user_data(update.effective_user.id)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nChatbot has been reset')
 
 
 def main():
@@ -98,11 +108,13 @@ def main():
 
     # Telegram Handlers
     start_handler = CommandHandler('start', start)
-    temperature_handler = CommandHandler('temperature', temperature)
+    temp_handler = CommandHandler('temp', temp)
+    reset_handler = CommandHandler('reset', reset)
     message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), answer)
 
     app.add_handler(start_handler)
-    app.add_handler(temperature_handler)
+    app.add_handler(temp_handler)
+    app.add_handler(reset_handler)
     app.add_handler(message_handler)
 
     # Run
