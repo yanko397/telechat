@@ -1,8 +1,10 @@
 import os
 import logging
 import pickle
+import threading
 
 import loader
+from user_data import UserData
 
 from hugchat import hugchat
 from hugchat.login import Login
@@ -21,8 +23,10 @@ COOKIE_PATH_DIR = 'cookies'
 LOGDIR = 'logs'
 MAX_TRIES = 5
 
-chatbots = {}
-temperature = 0.9
+lock = threading.Lock()
+
+# don't access this directly to get a user, use update_user_data instead!
+users: dict[str, UserData] = {}
 
 
 def login():
@@ -50,14 +54,14 @@ def new_chatbot():
     return chatbot
 
 
-def get_chatbot(user):
-    global chatbots
-    if user not in chatbots:
-        chatbots[user] = loader.load_chatbot(user)
-        if not chatbots[user]:
-            chatbots[user] = new_chatbot()
-            loader.save_chatbot(user, chatbots[user])
-    return chatbots[user]
+def update_user_data(user, save=True) -> UserData:
+    global users
+    with lock:
+        if user not in users:
+            users[user] = loader.load_user_data(user) or UserData(new_chatbot())
+        if save:
+            loader.save_user_data(user, users[user])
+    return users[user]
 
 
 def log(user, sender, message):
@@ -68,7 +72,8 @@ def log(user, sender, message):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"[bot]\nHi I'm hugchat :) write anything\n\nRight now you still need to be whitelisted to get a response though. I'll change that soon!\n\nCurrent temperature is {temperature}]\n\nUpdate with: /temperature [temperature]")
+    user_data = update_user_data(update.effective_user.username)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"[bot]\nHi I'm hugchat :) write anything\n\nRight now you still need to be whitelisted to get a response though. I'll change that soon!\n\nCurrent temperature is {user_data.temperature}\n\nUpdate with: /temperature [temperature]")
 
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -82,12 +87,12 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.text:
         return
     # try to get a response from the chatbot
-    chatbot = get_chatbot(user)
+    user_data = update_user_data(user)
     tries_remaining = MAX_TRIES
     message = ''
     while not message and tries_remaining:
         try:
-            message = chatbot.chat(update.message.text, temperature=temperature)
+            message = user_data.chatbot.chat(update.message.text, temperature=user_data.temperature)
         except Exception as e:
             print(e)
             tries_remaining -= 1
@@ -98,19 +103,22 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=message, reply_to_message_id=update.message.message_id)
 
 
-async def set_temperature(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global temperature
-    # no temperature given
+async def temperature(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user.username
+    chat_id = update.effective_chat.id
+    user_data = update_user_data(user)
+    # no temperature given, send current temperature
     if not context.args:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nCurrent temperature is {temperature}\n\nUpdate with: /temperature [temperature]')
+        await context.bot.send_message(chat_id=chat_id, text=f'[bot]\nCurrent temperature is {user_data.temperature}\n\nUpdate with: /temperature [temperature]')
         return
-    # invalid temperature
+    # invalid temperature, send error
     if not context.args[0].replace('.', '', 1).isdigit() or not 0 < float(context.args[0]) <= 1:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nInvalid temperature: {context.args[0]}')
         return
-    # set temperature
-    temperature = float(context.args[0])
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nTemperature set to {temperature}')
+    # set temperature, send confirmation
+    user_data.temperature = float(context.args[0])
+    update_user_data(user)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nTemperature set to {user_data.temperature}')
 
 
 def main():
@@ -121,7 +129,7 @@ def main():
 
     # Telegram Handlers
     start_handler = CommandHandler('start', start)
-    temperature_handler = CommandHandler('temperature', set_temperature)
+    temperature_handler = CommandHandler('temperature', temperature)
     message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), answer)
 
     app.add_handler(start_handler)

@@ -23,7 +23,7 @@ def load_allowed_users() -> list:
         return []
 
 
-def load_chatbot(user):
+def load_user_data(user):
     path = os.path.join(chatbots_dir, f'{user}.pickle')
     if os.path.exists(path):
         with open(path, 'rb') as f:
@@ -32,8 +32,8 @@ def load_chatbot(user):
         return None
 
 
-def save_chatbot(user, chatbot):
+def save_user_data(user, user_data):
     path = os.path.join(chatbots_dir, f'{user}.pickle')
     os.makedirs(chatbots_dir, exist_ok=True)
     with open(path, 'wb') as f:
-        pickle.dump(chatbot, f)
+        pickle.dump(user_data, f)
