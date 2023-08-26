@@ -1,61 +1,13 @@
 import os
-import threading
-from datetime import datetime
 
 import loader
-from user_data import UserData
-
-from hugchat import hugchat
-from hugchat.login import Login
 
 from telegram import Update
 from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTypes, CommandHandler
 
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-COOKIE_PATH_DIR = 'cookies'
-LOGDIR = 'logs'
-MAX_TRIES = 5
-
-lock = threading.Lock()
-
-# don't access this directly to get a user, use update_user_data instead!
-users: dict[str, UserData] = {}
-
-
-def login():
-    os.makedirs(COOKIE_PATH_DIR, exist_ok=True)
-    cookies_files = os.listdir(COOKIE_PATH_DIR)
-    if cookies_files:
-        mail = cookies_files[0][:-5] if len(cookies_files) == 1 else input('Mail: ')
-        sign = Login(mail, None)
-        cookies = sign.loadCookiesFromDir(COOKIE_PATH_DIR)
-    else:
-        mail = input('Mail: ')
-        pw = input('Password: ')
-        sign = Login(mail, pw)
-        cookies = sign.login()
-        sign.saveCookiesToDir(COOKIE_PATH_DIR)
-    return cookies.get_dict()
-
-
-def new_chatbot():
-    print('creating new chatbot! trying to login..')
-    cookies = login()
-    print('logged in! init chatbot..')
-    chatbot = hugchat.ChatBot(cookies=cookies)
-    print('chatbot ready!')
-    return chatbot
-
-
-def update_user_data(username: str, save=True) -> UserData:
-    global users
-    with lock:
-        if username not in users:
-            users[username] = loader.load_user_data(username) or UserData(new_chatbot())
-        if save:
-            loader.save_user_data(username, users[username])
-    return users[username]
+MAX_RESPONSE_TRIES = 5
 
 
 def admin(update: Update, warning=True):
@@ -76,24 +28,9 @@ def auth(update: Update):
     return allowed
 
 
-def log(filename: str, message: str, title: str = None, update: Update = None):
-    """Logs a message to a file in the LOGDIR directory.
-
-    title is prioritized over update
-    """
-    full_name = (update.effective_user.first_name + ' ' + update.effective_user.last_name).strip() if update else None
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    title = title or update.effective_user.username or update.effective_user.id + (f' ({full_name})' if full_name else '')
-    with lock:
-        os.makedirs(LOGDIR, exist_ok=True)
-        with open(os.path.join(LOGDIR, f'{filename}.log'), 'a', encoding='utf-8') as f:
-            f.write(f'{timestamp} ================ {title} ================\n')
-            f.write(f'{message}\n')
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
-    user_data = update_user_data(update.effective_user.username)
+    user_data = loader.update_user_data(update.effective_user.id)
     auth_text = 'You are whitelisted! have fun :D'
     not_auth_text = 'You are not whitelisted yet. Please ask the maker of this bot if you know them.'
     text = (f"[bot]\n"
@@ -106,8 +43,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user.username
-    log(user, user, update.message.text)
+    loader.log(update)
     # user not whitelisted
     if not auth(update):
         return
@@ -116,8 +52,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     # try to get a response from the chatbot
-    user_data = update_user_data(user)
-    tries_remaining = MAX_TRIES
+    user_data = loader.update_user_data(update.effective_user.id)
+    tries_remaining = MAX_RESPONSE_TRIES
     message = ''
     while not message and tries_remaining:
         try:
@@ -126,9 +62,9 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print(e)
             tries_remaining -= 1
     if not message and not tries_remaining:
-        message = f'[bot]\nNur gibberish als Antwort auch nach {MAX_TRIES} Versuchen.. Sorry :( Kannst es aber gerne nochmal versuchen'
+        message = f'[bot]\nNur gibberish als Antwort auch nach {MAX_RESPONSE_TRIES} Versuchen.. Sorry :( Kannst es aber gerne nochmal versuchen'
     # send response back to telegram
-    log(user, 'hugchat', message)
+    loader.log(update, title='hugchat', message=message)
     await context.bot.send_message(chat_id=update.effective_chat.id, text=message, reply_to_message_id=update.message.message_id)
 
 
@@ -136,9 +72,8 @@ async def temperature(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user not whitelisted
     if not auth(update):
         return
-    user = update.effective_user.username
     chat_id = update.effective_chat.id
-    user_data = update_user_data(user)
+    user_data = loader.update_user_data(update.effective_user.id)
     # no temperature given, send current temperature
     if not context.args:
         await context.bot.send_message(chat_id=chat_id, text=f'[bot]\nCurrent temperature is {user_data.temperature}\n\nUpdate with: /temperature [temperature]')
@@ -149,11 +84,13 @@ async def temperature(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     # set temperature, send confirmation
     user_data.temperature = float(context.args[0])
-    update_user_data(user)
+    loader.update_user_data(update.effective_user.id)
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'[bot]\nTemperature set to {user_data.temperature}')
 
 
 def main():
+    # Ensure logged in to hugchat
+    loader.hugchat_login()
 
     # Telegram
     config = loader.load_telegram_config()
