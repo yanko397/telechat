@@ -3,7 +3,7 @@ import json
 import pickle
 import threading
 from datetime import datetime
-from glob import glob
+from getpass import getpass
 
 from hugchat import hugchat
 from hugchat.login import Login
@@ -95,7 +95,7 @@ def hugchat_login():
         cookies = sign.loadCookiesFromDir(HUGCHAT_COOKIE_DIR)
     else:
         mail = input('Mail: ')
-        pw = input('Password: ')
+        pw = getpass()
         sign = Login(mail, pw)
         cookies = sign.login()
         sign.saveCookiesToDir(HUGCHAT_COOKIE_DIR)
