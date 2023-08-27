@@ -40,7 +40,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     auth_text = 'You are whitelisted! have fun :D'
     not_auth_text = 'You are not whitelisted yet. Please ask the creator of this bot if you know them.'
     permission = auth(update)
-    text = (f"*bot*\n"
+    text = (f""
             f"Hi I'm a Chatbot :) write anything\n\n"
             f"{auth_text if permission else not_auth_text}")
     text += (f"\n\nCurrent temperature is {user_data.temperature}\n"
@@ -69,7 +69,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print(e)
             tries_remaining -= 1
     if not message and not tries_remaining:
-        message = f'*bot*\nNur gibberish als Antwort auch nach {MAX_RESPONSE_TRIES} Versuchen.. Sorry :( Kannst es aber gerne nochmal versuchen'
+        message = f'Nur gibberish als Antwort auch nach {MAX_RESPONSE_TRIES} Versuchen.. Sorry :( Kannst es aber gerne nochmal versuchen'
     # send response back to telegram
     loader.log(update, title='hugchat', message=message)
     for part in textwrap.wrap(message, 3500, expand_tabs=False, replace_whitespace=False, break_long_words=False, break_on_hyphens=False):
@@ -84,16 +84,16 @@ async def temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = loader.update_user_data(update.effective_user.id)
     # no temperature given, send current temperature
     if not context.args:
-        await context.bot.send_message(chat_id=chat_id, text=f'*bot*\nCurrent temperature is {user_data.temperature}\n\nUpdate with: /temp [temperature]')
+        await context.bot.send_message(chat_id=chat_id, text=f'Current temperature is {user_data.temperature}\n\nUpdate with: /temp [temperature]')
         return
     # invalid temperature, send error
     if not context.args[0].replace('.', '', 1).isdigit() or not 0 < float(context.args[0]) <= 1:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'*bot*\nInvalid temperature: {context.args[0]}')
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Invalid temperature: {context.args[0]}')
         return
     # set temperature, send confirmation
     user_data.temperature = float(context.args[0])
     loader.update_user_data(update.effective_user.id)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'*bot*\nTemperature set to {user_data.temperature}')
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Temperature set to {user_data.temperature}')
 
 
 async def chatbot_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -104,7 +104,7 @@ async def chatbot_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = loader.update_user_data(update.effective_user.id)
     user_data.chatbot = loader.new_chatbot()
     loader.update_user_data(update.effective_user.id)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'*bot*\nChatbot has been reset')
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Chatbot has been reset')
 
 
 async def whitelist_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -113,14 +113,14 @@ async def whitelist_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     # no user given, send error
     if not context.args:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'*bot*\nPlease specify a username or id like this: /add [user]')
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Please specify a username or id like this: /add [user]')
         return
     # add user to whitelist, send confirmation
     added = loader.add_allowed_user(context.args[0])
     if added:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'*bot*\nUser "{context.args[0]}" has been added to the whitelist')
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'User "{context.args[0]}" has been added to the whitelist')
     else:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'*bot*\nUser "{context.args[0]}" is already whitelisted')
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'User "{context.args[0]}" is already whitelisted')
 
 
 async def whitelist_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -129,14 +129,14 @@ async def whitelist_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     # no user given, send error
     if not context.args:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'*bot*\nPlease specify a username or id like this: /remove [user]')
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Please specify a username or id like this: /remove [user]')
         return
     # remove user from whitelist, send confirmation
     removed = loader.remove_allowed_user(context.args[0])
     if removed:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'*bot*\nUser "{context.args[0]}" has been removed from the whitelist')
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'User "{context.args[0]}" has been removed from the whitelist')
     else:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'*bot*\nUser "{context.args[0]}" was not whitelisted in the first place')
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'User "{context.args[0]}" was not whitelisted in the first place')
 
 
 async def whitelist_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -145,11 +145,11 @@ async def whitelist_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     # list whitelist, send confirmation
     whitelist = '\n'.join(loader.load_allowed_users() or ['<empty>'])
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'*bot*\nWhitelisted users:\n\n{whitelist}')
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Whitelisted users:\n\n{whitelist}')
 
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'*bot*\nUnknown command')
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Unknown command')
 
 
 def main():
