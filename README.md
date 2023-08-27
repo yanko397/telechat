@@ -5,6 +5,8 @@ A telegram bot that allows you to chat with HuggingChat (Llama2)
 # Requirements
 
 * Python 3.9+
+* A Telegram Bot
+* A HuggingChat Account
 
 # Installation
 
