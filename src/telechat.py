@@ -75,7 +75,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = ''
     while not message and tries_remaining:
         try:
-            message = user_data.chatbot.chat(update.message.text, temperature=user_data.temperature)
+            message = str(user_data.chatbot.chat(update.message.text, temperature=user_data.temperature))
         except Exception as e:
             print(e)
             tries_remaining -= 1
@@ -119,7 +119,8 @@ async def chatbot_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     user_data = loader.update_user_data(update.effective_user.id)
-    user_data.chatbot = loader.new_chatbot()
+    new_conversation_id = user_data.chatbot.new_conversation()
+    user_data.chatbot.change_conversation(new_conversation_id)
     loader.update_user_data(update.effective_user.id)
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Chatbot has been reset')
 
