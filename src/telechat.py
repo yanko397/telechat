@@ -1,4 +1,5 @@
 import os
+import textwrap
 
 import loader
 
@@ -71,7 +72,8 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = f'*bot*\nNur gibberish als Antwort auch nach {MAX_RESPONSE_TRIES} Versuchen.. Sorry :( Kannst es aber gerne nochmal versuchen'
     # send response back to telegram
     loader.log(update, title='hugchat', message=message)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=message, reply_to_message_id=update.message.message_id)
+    for part in textwrap.wrap(message, 4000, expand_tabs=False, replace_whitespace=False, break_long_words=False, break_on_hyphens=False):
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=part, reply_to_message_id=update.message.message_id)
 
 
 async def temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
