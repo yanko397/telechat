@@ -1,8 +1,8 @@
 .vscode/
-
 __pycache__/
 venv/
 .venv/
+
 hugchat_cookies/
 chatbots/
 logs/
