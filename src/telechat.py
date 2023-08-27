@@ -4,7 +4,6 @@ import textwrap
 import loader
 
 from telegram import Update
-from telegram.constants import ParseMode
 from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTypes, CommandHandler
 
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -12,36 +11,45 @@ os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MAX_RESPONSE_TRIES = 5
 
 
-def admin(update: Update, warning=True):
+def admin(update: Update, warning: bool = True):
+    # no user associated with update
+    if not update.effective_user:
+        return False
     adminlist = loader.load_admins()
-    allowed = update.effective_user.username in adminlist or update.effective_user.id in adminlist
+    allowed = update.effective_user.username in adminlist or str(update.effective_user.id) in adminlist
     if warning and not allowed:
-        warning = f'not allowed user {update.effective_user.username or update.effective_user.id} tried to do admin stuff'
-        print(warning)
-        loader.log(update, filename='application', message=warning, title='warning')
+        warning_text = f'not allowed user {update.effective_user.username or str(update.effective_user.id)} tried to do admin stuff'
+        print(warning_text)
+        loader.log(update, filename='application', message=warning_text, title='warning')
     return allowed
 
 
-def auth(update: Update, ignore_admin=False):
+def auth(update: Update, ignore_admin: bool = False):
+    # admin is always allowed
     if not ignore_admin and admin(update, warning=False):
         return True
+    # no user associated with update
+    if not update.effective_user:
+        return False
     whitelist = loader.load_allowed_users()
-    allowed = update.effective_user.username in whitelist or update.effective_user.id in whitelist
+    allowed = update.effective_user.username in whitelist or str(update.effective_user.id) in whitelist
     if not allowed:
-        warning = f'not allowed user {update.effective_user.username or update.effective_user.id} tried to use bot'
+        warning = f'not allowed user {update.effective_user.username or str(update.effective_user.id)} tried to use bot'
         print(warning)
         loader.log(update, filename='application', message=warning, title='warning')
     return allowed
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # no chat or user associated with update
+    if not update.effective_chat or not update.effective_user:
+        return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     user_data = loader.update_user_data(update.effective_user.id)
     auth_text = 'You are whitelisted! have fun :D'
     not_auth_text = 'You are not whitelisted yet. Please ask the creator of this bot if you know them.'
     permission = auth(update)
-    text = (f""
-            f"Hi I'm a Chatbot :) write anything\n\n"
+    text = (f"Hi I'm a Chatbot :) write anything\n\n"
             f"{auth_text if permission else not_auth_text}")
     text += (f"\n\nCurrent temperature is {user_data.temperature}\n"
              f"Update with: /temp [temperature]") if permission else ''
@@ -55,7 +63,10 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not auth(update):
         return
     # no message
-    if not update.message.text:
+    if not update.message or not update.message.text:
+        return
+    # no chat or user associated with update
+    if not update.effective_chat or not update.effective_user:
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     # try to get a response from the chatbot
@@ -80,6 +91,9 @@ async def temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user not whitelisted
     if not auth(update):
         return
+    # no chat or user associated with update
+    if not update.effective_chat or not update.effective_user:
+        return
     chat_id = update.effective_chat.id
     user_data = loader.update_user_data(update.effective_user.id)
     # no temperature given, send current temperature
@@ -100,6 +114,9 @@ async def chatbot_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user not whitelisted
     if not auth(update):
         return
+    # no chat or user associated with update
+    if not update.effective_chat or not update.effective_user:
+        return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     user_data = loader.update_user_data(update.effective_user.id)
     user_data.chatbot = loader.new_chatbot()
@@ -110,6 +127,9 @@ async def chatbot_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def whitelist_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user not admin
     if not admin(update):
+        return
+    # no chat associated with update
+    if not update.effective_chat:
         return
     # no user given, send error
     if not context.args:
@@ -127,6 +147,9 @@ async def whitelist_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user not admin
     if not admin(update):
         return
+    # no chat associated with update
+    if not update.effective_chat:
+        return
     # no user given, send error
     if not context.args:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Please specify a username or id like this: /remove [user]')
@@ -143,12 +166,18 @@ async def whitelist_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user not admin
     if not admin(update):
         return
+    # no chat associated with update
+    if not update.effective_chat:
+        return
     # list whitelist, send confirmation
     whitelist = '\n'.join(loader.load_allowed_users() or ['<empty>'])
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Whitelisted users:\n\n{whitelist}')
 
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # no chat associated with update
+    if not update.effective_chat:
+        return
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Unknown command')
 
 
@@ -158,6 +187,9 @@ def main():
 
     # Telegram
     config = loader.load_telegram_config()
+    if not config['telegram_api_token']:
+        print('No telegram api token found. Please create a telegram bot and add the token to config.json')
+        return
     app = ApplicationBuilder().token(config['telegram_api_token']).build()
 
     # Telegram Handlers

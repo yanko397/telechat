@@ -4,6 +4,7 @@ import pickle
 import threading
 from datetime import datetime
 from getpass import getpass
+from typing import Optional, Union
 
 from hugchat import hugchat
 from hugchat.login import Login
@@ -21,7 +22,7 @@ LOG_DIR = 'logs'
 
 lock = threading.Lock()
 # don't access this directly to get a user, use update_user_data instead!
-users: dict[str, UserData] = {}
+users: dict[int, UserData] = {}
 
 
 def load_telegram_config() -> dict:
@@ -29,7 +30,7 @@ def load_telegram_config() -> dict:
         with open(TELEGRAM_CONFIG_FILE, encoding='utf-8') as f:
             return json.load(f)
     else:
-        return None
+        return {}
 
 
 def load_allowed_users() -> list:
@@ -40,7 +41,8 @@ def load_allowed_users() -> list:
         return []
 
 
-def add_allowed_user(user) -> bool:
+def add_allowed_user(user: Union[int, str]) -> bool:
+    user = str(user)
     allowed_users = load_allowed_users()
     if user not in allowed_users:
         allowed_users.append(user)
@@ -50,7 +52,8 @@ def add_allowed_user(user) -> bool:
     return False
 
 
-def remove_allowed_user(user) -> bool:
+def remove_allowed_user(user: Union[int, str]) -> bool:
+    user = str(user)
     allowed_users = load_allowed_users()
     if user in allowed_users:
         allowed_users.remove(user)
@@ -68,8 +71,8 @@ def load_admins() -> list:
         return []
 
 
-def load_user_data(user_id):
-    path = os.path.join(CHATBOTS_DIR, f'{user_id}.pickle')
+def load_user_data(user_id: int) -> Optional[UserData]:
+    path = os.path.join(CHATBOTS_DIR, f'{str(user_id)}.pickle')
     if os.path.exists(path):
         with open(path, 'rb') as f:
             return pickle.load(f)
@@ -77,14 +80,14 @@ def load_user_data(user_id):
         return None
 
 
-def save_user_data(user_id, user_data):
-    path = os.path.join(CHATBOTS_DIR, f'{user_id}.pickle')
+def save_user_data(user_id: int, user_data: UserData) -> None:
+    path = os.path.join(CHATBOTS_DIR, f'{str(user_id)}.pickle')
     os.makedirs(CHATBOTS_DIR, exist_ok=True)
     with open(path, 'wb') as f:
         pickle.dump(user_data, f)
 
 
-def new_chatbot():
+def new_chatbot() -> hugchat.ChatBot:
     print('creating new chatbot! trying to login to HuggingChat..')
     cookies = hugchat_login()
     print('logged in!')
@@ -94,7 +97,7 @@ def new_chatbot():
     return chatbot
 
 
-def hugchat_login():
+def hugchat_login() -> dict:
     os.makedirs(HUGCHAT_COOKIE_DIR, exist_ok=True)
     cookie_files = os.listdir(HUGCHAT_COOKIE_DIR)
     if cookie_files:
@@ -111,7 +114,7 @@ def hugchat_login():
                     break
                 else:
                     print(f'Invalid choice ({choice}), try again')
-        sign = Login(mail, None)
+        sign = Login(mail, '')
         cookies = sign.loadCookiesFromDir(HUGCHAT_COOKIE_DIR)
     else:
         mail = input('Mail: ')
@@ -122,7 +125,7 @@ def hugchat_login():
     return cookies.get_dict()
 
 
-def update_user_data(user_id: str, save=True) -> UserData:
+def update_user_data(user_id: int, save: bool = True) -> UserData:
     """Returns the user data for the given user id.
 
     This automatically pickles and unpickles the user data.
@@ -139,18 +142,22 @@ def update_user_data(user_id: str, save=True) -> UserData:
     return users[user_id]
 
 
-def log(update: Update, *, filename: str = None, message: str = None, title: str = None):
+def log(update: Update, *, filename: str = '', message: str = '', title: str = '') -> None:
     """Logs a message to a file in the LOGDIR directory.
 
     "title" is prioritized over "update"
     """
-    first_name = update.effective_user.first_name or ''
-    last_name = update.effective_user.last_name or ''
-    name = f'{first_name} {last_name}'.strip() if update else ''
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    filename = filename or update.effective_user.id
-    message = message or update.message.text
-    title = title or update.effective_user.username or update.effective_user.id + (f' ({name})' if name else '')
+    name = ''
+    if update and update.effective_user:
+        first_name = update.effective_user.first_name or ''
+        last_name = update.effective_user.last_name or ''
+        name = f'{first_name} {last_name}'.strip()
+        filename = filename or str(update.effective_user.id)
+        title = title or update.effective_user.username or str(update.effective_user.id) + (f' ({name})' if name else '')
+    if update and update.message:
+        message = message or update.message.text or ''
+
     with lock:
         os.makedirs(LOG_DIR, exist_ok=True)
         with open(os.path.join(LOG_DIR, f'{filename}.log'), 'a', encoding='utf-8') as f:
