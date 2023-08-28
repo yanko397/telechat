@@ -99,21 +99,34 @@ def load_admins() -> list[str]:
 
 def load_user_data(user_id: int) -> Optional[UserData]:
     path = ''
+    if not os.path.isdir(USERS_DIR):
+        return None
     for file in os.listdir(USERS_DIR):
-        if os.path.isfile(file) and file.startswith(str(user_id)) and file.endswith('.pickle'):
-            path = file
+        maybe_path = os.path.join(USERS_DIR, file)
+        if os.path.isfile(maybe_path) and file.startswith(str(user_id)) and file.endswith('.pickle'):
+            path = maybe_path
             break
     if not path:
         return None
-    with lock, open(os.path.join(USERS_DIR, path), 'rb') as f:
+    with lock, open(path, 'rb') as f:
         return pickle.load(f)
 
 
 def save_user_data(user_id: int, user_data: UserData) -> None:
-    path = os.path.join(USERS_DIR, f'{str(user_id)}.pickle')
-    os.makedirs(USERS_DIR, exist_ok=True)
-    with lock, open(path, 'wb') as f:
-        pickle.dump(user_data, f)
+    if not user_data.filename:
+        return
+    path = ''
+    if os.path.isdir(USERS_DIR):
+        for file in os.listdir(USERS_DIR):
+            maybe_path = os.path.join(USERS_DIR, file)
+            if os.path.isfile(maybe_path) and file.startswith(str(user_id)) and file.endswith('.pickle'):
+                path = maybe_path
+                break
+    path = path or os.path.join(USERS_DIR, f'{user_data.filename}.pickle')
+    with lock:
+        os.makedirs(USERS_DIR, exist_ok=True)
+        with open(path, 'wb') as f:
+            pickle.dump(user_data, f)
 
 
 def new_chatbot() -> hugchat.ChatBot:
@@ -152,7 +165,7 @@ def hugchat_login() -> dict:
     return cookies.get_dict()
 
 
-def update_user_data(user_id: int, save: bool = True) -> UserData:
+def update_user_data(update: Update) -> UserData:
     """Returns the user data for the given user id, essentially syncing it with the file system.
 
     This automatically pickles and unpickles the user data.
@@ -161,10 +174,17 @@ def update_user_data(user_id: int, save: bool = True) -> UserData:
     If the user does not exist yet, a new one is created.
     """
     global users
-    if user_id not in users:
-        users[user_id] = load_user_data(user_id) or UserData(new_chatbot())
-    if save:
-        save_user_data(user_id, users[user_id])
+    user_id = 0
+    filename = ''
+    if update.effective_user:
+        user_id = update.effective_user.id
+        first_name = update.effective_user.first_name or ''
+        last_name = update.effective_user.last_name or ''
+        name = f'{first_name} {last_name}'.strip()
+        filename = str(update.effective_user.id) + '_' + (update.effective_user.username or name)
+    if not user_id or user_id not in users:
+        users[user_id] = load_user_data(user_id) or UserData(new_chatbot(), filename)
+    save_user_data(user_id, users[user_id])
     return users[user_id]
 
 
@@ -200,7 +220,7 @@ def log(update: Update, *, filename: str = '', message: str = '', title: str = '
         subdir = subdir or __find_log_subdir(update.effective_user.id) or str(update.effective_user.id) + '_' + (update.effective_user.username or name)
         title = title or update.effective_user.username or str(update.effective_user.id) + (f' ({name})' if name else '')
         if auth(update, warning=False):
-            user_data = update_user_data(update.effective_user.id)
+            user_data = update_user_data(update)
     if update and update.message:
         message = message or update.message.text or ''
     filename = filename or (user_data.chatbot.current_conversation if user_data else '') or 'unknown'

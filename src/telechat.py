@@ -19,7 +19,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     text = "Hi I'm a Chatbot :) write anything"
     if auth(update):
-        user_data = loader.update_user_data(update.effective_user.id)
+        user_data = loader.update_user_data(update)
         text += f"\n\nYou are whitelisted! have fun :D"
         text += f"\n\nCurrent temperature is {str(user_data.temperature)}\nUpdate with: /temp [temperature]"
         text += f"\n\n*Admin mode* 🥳" if admin(update, warning=False) else ''
@@ -41,7 +41,7 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     # try to get a response from the chatbot
-    user_data = loader.update_user_data(update.effective_user.id)
+    user_data = loader.update_user_data(update)
     tries_remaining = MAX_RESPONSE_TRIES
     message = ''
     while not message and tries_remaining:
@@ -66,7 +66,7 @@ async def temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat or not update.effective_user:
         return
     chat_id = update.effective_chat.id
-    user_data = loader.update_user_data(update.effective_user.id)
+    user_data = loader.update_user_data(update)
     # no temperature given, send current temperature
     if not context.args:
         await context.bot.send_message(chat_id=chat_id, text=f'Current temperature is {user_data.temperature}\n\nUpdate with: /temp [temperature]')
@@ -77,7 +77,7 @@ async def temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     # set temperature, send confirmation
     user_data.temperature = float(context.args[0])
-    loader.update_user_data(update.effective_user.id)
+    loader.update_user_data(update)
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Temperature set to {user_data.temperature}')
 
 
@@ -89,10 +89,10 @@ async def chatbot_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat or not update.effective_user:
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
-    user_data = loader.update_user_data(update.effective_user.id)
+    user_data = loader.update_user_data(update)
     new_conversation_id = user_data.chatbot.new_conversation()
     user_data.chatbot.change_conversation(new_conversation_id)
-    loader.update_user_data(update.effective_user.id)
+    loader.update_user_data(update)
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Chatbot has been reset')
 
 
