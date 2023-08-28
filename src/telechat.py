@@ -81,7 +81,7 @@ async def temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Temperature set to {user_data.temperature}')
 
 
-async def chatbot_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def chatbot_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user not whitelisted
     if not auth(update):
         return
@@ -93,7 +93,27 @@ async def chatbot_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_conversation_id = user_data.chatbot.new_conversation()
     user_data.chatbot.change_conversation(new_conversation_id)
     loader.update_user_data(update)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Chatbot has been reset')
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'New conversation was started, the old one is still on HuggingChat')
+
+
+async def chatbot_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # user not whitelisted
+    if not auth(update):
+        return
+    # no chat or user associated with update
+    if not update.effective_chat or not update.effective_user:
+        return
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
+    user_data = loader.update_user_data(update)
+    old_conversation_id = user_data.chatbot.current_conversation
+    new_conversation_id = user_data.chatbot.new_conversation()
+    user_data.chatbot.change_conversation(new_conversation_id)
+    user_data.chatbot.delete_conversation(old_conversation_id)
+    logs_deleted = False
+    if context.args and context.args[0] == 'logs':
+        logs_deleted = loader.delete_log(update.effective_user.id, old_conversation_id)
+    loader.update_user_data(update)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Conversation has been deleted and a new one has been started' + ('\nand the logs have been deleted' if logs_deleted else ''))
 
 
 async def whitelist_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -167,7 +187,8 @@ def main():
     # Telegram Handlers
     start_handler = CommandHandler('start', start)
     temp_handler = CommandHandler('temp', temp)
-    chatbot_reset_handler = CommandHandler('reset', chatbot_reset)
+    chatbot_new_handler = CommandHandler('new', chatbot_new)
+    chatbot_delete_handler = CommandHandler('delete', chatbot_delete)
     whitelist_add_handler = CommandHandler('add', whitelist_add)
     whitelist_remove_handler = CommandHandler('remove', whitelist_remove)
     whitelist_list_handler = CommandHandler('list', whitelist_list)
@@ -176,7 +197,8 @@ def main():
 
     app.add_handler(start_handler)
     app.add_handler(temp_handler)
-    app.add_handler(chatbot_reset_handler)
+    app.add_handler(chatbot_new_handler)
+    app.add_handler(chatbot_delete_handler)
     app.add_handler(whitelist_add_handler)
     app.add_handler(whitelist_remove_handler)
     app.add_handler(whitelist_list_handler)
