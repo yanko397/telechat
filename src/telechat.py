@@ -45,15 +45,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.effective_chat or not update.effective_user:
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
-    user_data = loader.update_user_data(update.effective_user.id)
-    auth_text = 'You are whitelisted! have fun :D'
-    not_auth_text = 'You are not whitelisted yet. Please ask the creator of this bot if you know them.'
-    permission = auth(update)
-    text = (f"Hi I'm a Chatbot :) write anything\n\n"
-            f"{auth_text if permission else not_auth_text}")
-    text += (f"\n\nCurrent temperature is {user_data.temperature}\n"
-             f"Update with: /temp [temperature]") if permission else ''
-    text += f"\n\n*Admin mode* 🥳" if admin(update, warning=False) else ''
+    text = "Hi I'm a Chatbot :) write anything"
+    if auth(update):
+        user_data = loader.update_user_data(update.effective_user.id)
+        text += f"\n\nYou are whitelisted! have fun :D"
+        text += f"\n\nCurrent temperature is {str(user_data.temperature)}\nUpdate with: /temp [temperature]"
+        text += f"\n\n*Admin mode* 🥳" if admin(update, warning=False) else ''
+    else:
+        text += f"\n\nYou are not whitelisted yet. Please ask the creator of this bot to add you if you know them."
     await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
 
 

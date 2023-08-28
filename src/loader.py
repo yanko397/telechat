@@ -5,6 +5,7 @@ import threading
 from datetime import datetime
 from getpass import getpass
 from typing import Optional, Union
+from glob import glob
 
 from hugchat import hugchat
 from hugchat.login import Login
@@ -27,7 +28,7 @@ users: dict[int, UserData] = {}
 
 def load_telegram_config() -> dict:
     if os.path.exists(TELEGRAM_CONFIG_FILE):
-        with open(TELEGRAM_CONFIG_FILE, encoding='utf-8') as f:
+        with lock, open(TELEGRAM_CONFIG_FILE, encoding='utf-8') as f:
             return json.load(f)
     else:
         return {}
@@ -35,7 +36,7 @@ def load_telegram_config() -> dict:
 
 def load_allowed_users() -> list:
     if os.path.exists(ALLOWED_USERS_FILE):
-        with open(ALLOWED_USERS_FILE, encoding='utf-8') as f:
+        with lock, open(ALLOWED_USERS_FILE, encoding='utf-8') as f:
             return json.load(f)
     else:
         return []
@@ -46,7 +47,7 @@ def add_allowed_user(user: Union[int, str]) -> bool:
     allowed_users = load_allowed_users()
     if user not in allowed_users:
         allowed_users.append(user)
-        with open(ALLOWED_USERS_FILE, 'w', encoding='utf-8') as f:
+        with lock, open(ALLOWED_USERS_FILE, 'w', encoding='utf-8') as f:
             json.dump(allowed_users, f, indent=4)
             return True
     return False
@@ -57,7 +58,7 @@ def remove_allowed_user(user: Union[int, str]) -> bool:
     allowed_users = load_allowed_users()
     if user in allowed_users:
         allowed_users.remove(user)
-        with open(ALLOWED_USERS_FILE, 'w', encoding='utf-8') as f:
+        with lock, open(ALLOWED_USERS_FILE, 'w', encoding='utf-8') as f:
             json.dump(allowed_users, f, indent=4)
             return True
     return False
@@ -65,7 +66,7 @@ def remove_allowed_user(user: Union[int, str]) -> bool:
 
 def load_admins() -> list:
     if os.path.exists(ADMINS_FILE):
-        with open(ADMINS_FILE, encoding='utf-8') as f:
+        with lock, open(ADMINS_FILE, encoding='utf-8') as f:
             return json.load(f)
     else:
         return []
@@ -74,7 +75,7 @@ def load_admins() -> list:
 def load_user_data(user_id: int) -> Optional[UserData]:
     path = os.path.join(CHATBOTS_DIR, f'{str(user_id)}.pickle')
     if os.path.exists(path):
-        with open(path, 'rb') as f:
+        with lock, open(path, 'rb') as f:
             return pickle.load(f)
     else:
         return None
@@ -83,17 +84,14 @@ def load_user_data(user_id: int) -> Optional[UserData]:
 def save_user_data(user_id: int, user_data: UserData) -> None:
     path = os.path.join(CHATBOTS_DIR, f'{str(user_id)}.pickle')
     os.makedirs(CHATBOTS_DIR, exist_ok=True)
-    with open(path, 'wb') as f:
+    with lock, open(path, 'wb') as f:
         pickle.dump(user_data, f)
 
 
 def new_chatbot() -> hugchat.ChatBot:
-    print('creating new chatbot! trying to login to HuggingChat..')
-    cookies = hugchat_login()
-    print('logged in!')
-    print('init chatbot..')
+    with lock:
+        cookies = hugchat_login()
     chatbot = hugchat.ChatBot(cookies=cookies)
-    print('chatbot ready!')
     return chatbot
 
 
@@ -104,7 +102,7 @@ def hugchat_login() -> dict:
         if len(cookie_files) == 1:
             mail = cookie_files[0].removesuffix('.json')
         else:
-            print('Multiple cookie files found:')
+            print('Multiple HuggingChat cookie files found:')
             for i, file in enumerate(cookie_files):
                 print(f'{i}: {file}')
             while True:
@@ -117,6 +115,7 @@ def hugchat_login() -> dict:
         sign = Login(mail, '')
         cookies = sign.loadCookiesFromDir(HUGCHAT_COOKIE_DIR)
     else:
+        print('No HuggingChat cookie files found, please login to HuggingChat')
         mail = input('Mail: ')
         pw = getpass()
         sign = Login(mail, pw)
@@ -126,7 +125,7 @@ def hugchat_login() -> dict:
 
 
 def update_user_data(user_id: int, save: bool = True) -> UserData:
-    """Returns the user data for the given user id.
+    """Returns the user data for the given user id, essentially syncing it with the file system.
 
     This automatically pickles and unpickles the user data.
     Unpickling is only done if user is not in memory yet.
@@ -134,32 +133,50 @@ def update_user_data(user_id: int, save: bool = True) -> UserData:
     If the user does not exist yet, a new one is created.
     """
     global users
-    with lock:
-        if user_id not in users:
-            users[user_id] = load_user_data(user_id) or UserData(new_chatbot())
-        if save:
-            save_user_data(user_id, users[user_id])
+    if user_id not in users:
+        users[user_id] = load_user_data(user_id) or UserData(new_chatbot())
+    if save:
+        save_user_data(user_id, users[user_id])
     return users[user_id]
+
+
+def __find_log_subdir(user_id: int) -> Optional[str]:
+    """Returns the name of the subdirectory in the LOG_DIR directory that belongs to the user or None if not existent."""
+    if not os.path.exists(LOG_DIR):
+        return None
+    for subdir in os.listdir(LOG_DIR):
+        if os.path.isdir(subdir) and subdir.startswith(str(user_id)):
+            return subdir
+    return None
 
 
 def log(update: Update, *, filename: str = '', message: str = '', title: str = '') -> None:
     """Logs a message to a file in the LOGDIR directory.
 
-    "title" is prioritized over "update"
+    A directory is created for each user.
+    Its name starts with their user id, followed by any string (username by default).
+    The filename in the subdir is the chat id followed by '.log'.
+
+    The optional function parameters take precedence over information from the update object.
     """
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    # find best filename, title and message in parameters
     name = ''
+    subdir = ''
     if update and update.effective_user:
         first_name = update.effective_user.first_name or ''
         last_name = update.effective_user.last_name or ''
         name = f'{first_name} {last_name}'.strip()
-        filename = filename or str(update.effective_user.id)
+        subdir = __find_log_subdir(update.effective_user.id) or str(update.effective_user.id) + '_' + (update.effective_user.username or name)
         title = title or update.effective_user.username or str(update.effective_user.id) + (f' ({name})' if name else '')
     if update and update.message:
         message = message or update.message.text or ''
+    if update and update.effective_chat:
+        filename = filename or str(update.effective_chat.id)
+    filename = filename or 'unknown.log'
 
     with lock:
-        os.makedirs(LOG_DIR, exist_ok=True)
-        with open(os.path.join(LOG_DIR, f'{filename}.log'), 'a', encoding='utf-8') as f:
+        os.makedirs(os.path.join(LOG_DIR, subdir), exist_ok=True)
+        with open(os.path.join(LOG_DIR, subdir, f'{filename}.log'), 'a', encoding='utf-8') as f:
             f.write(f'{timestamp} ================ {title} ================\n')
             f.write(f'{message}\n')
