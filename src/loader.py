@@ -55,58 +55,58 @@ def auth(update: Update, warning: bool = True):
 
 
 def load_telegram_config() -> dict:
-    if os.path.exists(TELEGRAM_CONFIG_FILE):
-        with lock, open(TELEGRAM_CONFIG_FILE, encoding='utf-8') as f:
-            return json.load(f)
-    else:
+    if not os.path.exists(TELEGRAM_CONFIG_FILE):
         return {}
+    with lock, open(TELEGRAM_CONFIG_FILE, encoding='utf-8') as f:
+        return json.load(f)
 
 
 def load_allowed_users() -> list[str]:
-    if os.path.exists(ALLOWED_USERS_FILE):
-        with lock, open(ALLOWED_USERS_FILE, encoding='utf-8') as f:
-            return json.load(f)
-    else:
+    if not os.path.exists(ALLOWED_USERS_FILE):
         return []
+    with lock, open(ALLOWED_USERS_FILE, encoding='utf-8') as f:
+        return json.load(f)
 
 
 def add_allowed_user(user: Union[int, str]) -> bool:
     user = str(user)
     allowed_users = load_allowed_users()
-    if user not in allowed_users:
-        allowed_users.append(user)
-        with lock, open(ALLOWED_USERS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(allowed_users, f, indent=4)
-            return True
-    return False
+    if user in allowed_users:
+        return False
+    allowed_users.append(user)
+    with lock, open(ALLOWED_USERS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(allowed_users, f, indent=4)
+        return True
 
 
 def remove_allowed_user(user: Union[int, str]) -> bool:
     user = str(user)
     allowed_users = load_allowed_users()
-    if user in allowed_users:
-        allowed_users.remove(user)
-        with lock, open(ALLOWED_USERS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(allowed_users, f, indent=4)
-            return True
-    return False
+    if user not in allowed_users:
+        return False
+    allowed_users.remove(user)
+    with lock, open(ALLOWED_USERS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(allowed_users, f, indent=4)
+        return True
 
 
 def load_admins() -> list[str]:
-    if os.path.exists(ADMINS_FILE):
-        with lock, open(ADMINS_FILE, encoding='utf-8') as f:
-            return json.load(f)
-    else:
+    if not os.path.exists(ADMINS_FILE):
         return []
+    with lock, open(ADMINS_FILE, encoding='utf-8') as f:
+        return json.load(f)
 
 
 def load_user_data(user_id: int) -> Optional[UserData]:
-    path = os.path.join(USERS_DIR, f'{str(user_id)}.pickle')
-    if os.path.exists(path):
-        with lock, open(path, 'rb') as f:
-            return pickle.load(f)
-    else:
+    path = ''
+    for file in os.listdir(USERS_DIR):
+        if os.path.isfile(file) and file.startswith(str(user_id)) and file.endswith('.pickle'):
+            path = file
+            break
+    if not path:
         return None
+    with lock, open(os.path.join(USERS_DIR, path), 'rb') as f:
+        return pickle.load(f)
 
 
 def save_user_data(user_id: int, user_data: UserData) -> None:
