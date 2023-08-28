@@ -25,6 +25,35 @@ lock = threading.Lock()
 users: dict[int, UserData] = {}
 
 
+def admin(update: Update, warning: bool = True):
+    # no user associated with update
+    if not update.effective_user:
+        return False
+    adminlist = load_admins()
+    allowed = update.effective_user.username in adminlist or str(update.effective_user.id) in adminlist
+    if warning and not allowed:
+        warning_text = f'not allowed user {update.effective_user.username or str(update.effective_user.id)} tried to do admin stuff'
+        print(warning_text)
+        log(update, filename='application', message=warning_text, title='warning', subdir='None')
+    return allowed
+
+
+def auth(update: Update, warning: bool = True):
+    # admin is always allowed
+    if admin(update, warning=False):
+        return True
+    # no user associated with update
+    if not update.effective_user:
+        return False
+    whitelist = load_allowed_users()
+    allowed = update.effective_user.username in whitelist or str(update.effective_user.id) in whitelist
+    if warning and not allowed:
+        warning_text = f'not allowed user {update.effective_user.username or str(update.effective_user.id)} tried to use bot'
+        print(warning_text)
+        log(update, filename='application', message=warning_text, title='warning', subdir='None')
+    return allowed
+
+
 def load_telegram_config() -> dict:
     if os.path.exists(TELEGRAM_CONFIG_FILE):
         with lock, open(TELEGRAM_CONFIG_FILE, encoding='utf-8') as f:
@@ -33,7 +62,7 @@ def load_telegram_config() -> dict:
         return {}
 
 
-def load_allowed_users() -> list:
+def load_allowed_users() -> list[str]:
     if os.path.exists(ALLOWED_USERS_FILE):
         with lock, open(ALLOWED_USERS_FILE, encoding='utf-8') as f:
             return json.load(f)
@@ -63,7 +92,7 @@ def remove_allowed_user(user: Union[int, str]) -> bool:
     return False
 
 
-def load_admins() -> list:
+def load_admins() -> list[str]:
     if os.path.exists(ADMINS_FILE):
         with lock, open(ADMINS_FILE, encoding='utf-8') as f:
             return json.load(f)
@@ -163,17 +192,18 @@ def log(update: Update, *, filename: str = '', message: str = '', title: str = '
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     # find best filename, title and message in parameters
     name = ''
+    user_data = None
     if update and update.effective_user:
         first_name = update.effective_user.first_name or ''
         last_name = update.effective_user.last_name or ''
         name = f'{first_name} {last_name}'.strip()
         subdir = subdir or __find_log_subdir(update.effective_user.id) or str(update.effective_user.id) + '_' + (update.effective_user.username or name)
         title = title or update.effective_user.username or str(update.effective_user.id) + (f' ({name})' if name else '')
+        if auth(update, warning=False):
+            user_data = update_user_data(update.effective_user.id)
     if update and update.message:
         message = message or update.message.text or ''
-    if update and update.effective_chat:
-        filename = filename or str(update.effective_chat.id)
-    filename = filename or 'unknown.log'
+    filename = filename or (user_data.chatbot.current_conversation if user_data else '') or 'unknown'
 
     if subdir == 'None':
         subdir = ''

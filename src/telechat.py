@@ -2,6 +2,7 @@ import os
 import textwrap
 
 import loader
+from loader import auth, admin
 
 from telegram import Update
 from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTypes, CommandHandler
@@ -9,35 +10,6 @@ from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTyp
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 MAX_RESPONSE_TRIES = 5
-
-
-def admin(update: Update, warning: bool = True):
-    # no user associated with update
-    if not update.effective_user:
-        return False
-    adminlist = loader.load_admins()
-    allowed = update.effective_user.username in adminlist or str(update.effective_user.id) in adminlist
-    if warning and not allowed:
-        warning_text = f'not allowed user {update.effective_user.username or str(update.effective_user.id)} tried to do admin stuff'
-        print(warning_text)
-        loader.log(update, filename='application', message=warning_text, title='warning', subdir='None')
-    return allowed
-
-
-def auth(update: Update, ignore_admin: bool = False):
-    # admin is always allowed
-    if not ignore_admin and admin(update, warning=False):
-        return True
-    # no user associated with update
-    if not update.effective_user:
-        return False
-    whitelist = loader.load_allowed_users()
-    allowed = update.effective_user.username in whitelist or str(update.effective_user.id) in whitelist
-    if not allowed:
-        warning = f'not allowed user {update.effective_user.username or str(update.effective_user.id)} tried to use bot'
-        print(warning)
-        loader.log(update, filename='application', message=warning, title='warning', subdir='None')
-    return allowed
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
