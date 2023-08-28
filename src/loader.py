@@ -5,7 +5,6 @@ import threading
 from datetime import datetime
 from getpass import getpass
 from typing import Optional, Union
-from glob import glob
 
 from hugchat import hugchat
 from hugchat.login import Login
@@ -18,7 +17,7 @@ ALLOWED_USERS_FILE = 'allowed_users.json'
 ADMINS_FILE = 'admins.json'
 
 HUGCHAT_COOKIE_DIR = 'hugchat_cookies'
-CHATBOTS_DIR = 'chatbots'
+USERS_DIR = 'users'
 LOG_DIR = 'logs'
 
 lock = threading.Lock()
@@ -73,7 +72,7 @@ def load_admins() -> list:
 
 
 def load_user_data(user_id: int) -> Optional[UserData]:
-    path = os.path.join(CHATBOTS_DIR, f'{str(user_id)}.pickle')
+    path = os.path.join(USERS_DIR, f'{str(user_id)}.pickle')
     if os.path.exists(path):
         with lock, open(path, 'rb') as f:
             return pickle.load(f)
@@ -82,8 +81,8 @@ def load_user_data(user_id: int) -> Optional[UserData]:
 
 
 def save_user_data(user_id: int, user_data: UserData) -> None:
-    path = os.path.join(CHATBOTS_DIR, f'{str(user_id)}.pickle')
-    os.makedirs(CHATBOTS_DIR, exist_ok=True)
+    path = os.path.join(USERS_DIR, f'{str(user_id)}.pickle')
+    os.makedirs(USERS_DIR, exist_ok=True)
     with lock, open(path, 'wb') as f:
         pickle.dump(user_data, f)
 

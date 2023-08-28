@@ -4,7 +4,7 @@ venv/
 .venv/
 
 hugchat_cookies/
-chatbots/
+users/
 logs/
 
 config.json
