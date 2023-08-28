@@ -149,30 +149,34 @@ def __find_log_subdir(user_id: int) -> Optional[str]:
     return None
 
 
-def log(update: Update, *, filename: str = '', message: str = '', title: str = '') -> None:
+def log(update: Update, *, filename: str = '', message: str = '', title: str = '', subdir: str = '') -> None:
     """Logs a message to a file in the LOGDIR directory.
 
-    A directory is created for each user.
+    A subdirectory is created for each user.
     Its name starts with their user id, followed by any string (username by default).
     The filename in the subdir is the chat id followed by '.log'.
+
+    If the subdir is the string 'None', no subdirectory is created.
 
     The optional function parameters take precedence over information from the update object.
     """
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     # find best filename, title and message in parameters
     name = ''
-    subdir = ''
     if update and update.effective_user:
         first_name = update.effective_user.first_name or ''
         last_name = update.effective_user.last_name or ''
         name = f'{first_name} {last_name}'.strip()
-        subdir = __find_log_subdir(update.effective_user.id) or str(update.effective_user.id) + '_' + (update.effective_user.username or name)
+        subdir = subdir or __find_log_subdir(update.effective_user.id) or str(update.effective_user.id) + '_' + (update.effective_user.username or name)
         title = title or update.effective_user.username or str(update.effective_user.id) + (f' ({name})' if name else '')
     if update and update.message:
         message = message or update.message.text or ''
     if update and update.effective_chat:
         filename = filename or str(update.effective_chat.id)
     filename = filename or 'unknown.log'
+
+    if subdir == 'None':
+        subdir = ''
 
     with lock:
         os.makedirs(os.path.join(LOG_DIR, subdir), exist_ok=True)

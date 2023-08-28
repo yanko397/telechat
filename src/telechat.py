@@ -20,7 +20,7 @@ def admin(update: Update, warning: bool = True):
     if warning and not allowed:
         warning_text = f'not allowed user {update.effective_user.username or str(update.effective_user.id)} tried to do admin stuff'
         print(warning_text)
-        loader.log(update, filename='application', message=warning_text, title='warning')
+        loader.log(update, filename='application', message=warning_text, title='warning', subdir='None')
     return allowed
 
 
@@ -36,7 +36,7 @@ def auth(update: Update, ignore_admin: bool = False):
     if not allowed:
         warning = f'not allowed user {update.effective_user.username or str(update.effective_user.id)} tried to use bot'
         print(warning)
-        loader.log(update, filename='application', message=warning, title='warning')
+        loader.log(update, filename='application', message=warning, title='warning', subdir='None')
     return allowed
 
 
