@@ -7,9 +7,35 @@ from loader import auth, admin
 from telegram import Update
 from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTypes, CommandHandler
 
+from user_data import UserData
+
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 MAX_RESPONSE_TRIES = 5
+
+
+def get_response(user_data: UserData, text: str) -> str:
+    # try to get a response from the chatbot
+    tries_remaining = MAX_RESPONSE_TRIES
+    message = ''
+    while not message and tries_remaining:
+        try:
+            message = str(user_data.chatbot.chat(text, temperature=user_data.temperature))
+        except Exception as e:
+            print(e)
+            tries_remaining -= 1
+    if not message and not tries_remaining:
+        message = f'Nur gibberish als Antwort auch nach {MAX_RESPONSE_TRIES} Versuchen.. Sorry :( Kannst es aber gerne nochmal versuchen'
+    return message
+
+
+def reset_conversation(user_data: UserData, *, delete: bool) -> str:
+    old_conversation_id = user_data.chatbot.current_conversation
+    new_conversation_id = user_data.chatbot.new_conversation()
+    user_data.chatbot.change_conversation(new_conversation_id)
+    if delete:
+        user_data.chatbot.delete_conversation(old_conversation_id)
+    return old_conversation_id
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -34,28 +60,18 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not auth(update):
         return
     # no message
-    if not update.message or not update.message.text:
+    if not update.effective_message or not update.effective_message.text:
         return
     # no chat or user associated with update
     if not update.effective_chat or not update.effective_user:
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
-    # try to get a response from the chatbot
     user_data = loader.update_user_data(update)
-    tries_remaining = MAX_RESPONSE_TRIES
-    message = ''
-    while not message and tries_remaining:
-        try:
-            message = str(user_data.chatbot.chat(update.message.text, temperature=user_data.temperature))
-        except Exception as e:
-            print(e)
-            tries_remaining -= 1
-    if not message and not tries_remaining:
-        message = f'Nur gibberish als Antwort auch nach {MAX_RESPONSE_TRIES} Versuchen.. Sorry :( Kannst es aber gerne nochmal versuchen'
+    message = get_response(user_data, update.effective_message.text)
     # send response back to telegram
     loader.log(update, title='hugchat', message=message)
     for part in textwrap.wrap(message, 3500, expand_tabs=False, replace_whitespace=False, break_long_words=False, break_on_hyphens=False):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=part, reply_to_message_id=update.message.message_id)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=part, reply_to_message_id=update.effective_message.message_id)
 
 
 async def temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -90,8 +106,7 @@ async def chatbot_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     user_data = loader.update_user_data(update)
-    new_conversation_id = user_data.chatbot.new_conversation()
-    user_data.chatbot.change_conversation(new_conversation_id)
+    reset_conversation(user_data, delete=False)
     loader.update_user_data(update)
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'New conversation was started, the old one is still on HuggingChat')
 
@@ -105,15 +120,37 @@ async def chatbot_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     user_data = loader.update_user_data(update)
-    old_conversation_id = user_data.chatbot.current_conversation
-    new_conversation_id = user_data.chatbot.new_conversation()
-    user_data.chatbot.change_conversation(new_conversation_id)
-    user_data.chatbot.delete_conversation(old_conversation_id)
+    old_conversation_id = reset_conversation(user_data, delete=True)
     logs_deleted = False
     if context.args and context.args[0] == 'logs':
         logs_deleted = loader.delete_log(update.effective_user.id, old_conversation_id)
     loader.update_user_data(update)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Conversation has been deleted and a new one has been started' + ('\nand the logs have been deleted' if logs_deleted else ''))
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Conversation has been deleted and a new one has been started' + ('\nand the logs have been deleted' if logs_deleted else '\nbut the logs have been kept'))
+
+
+async def private(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # user not whitelisted
+    if not auth(update):
+        return
+    # no message
+    if not update.effective_message or not update.effective_message.text:
+        return
+    # no chat or user associated with update
+    if not update.effective_chat or not update.effective_user:
+        return
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
+    text = update.effective_message.text.removeprefix('/private').strip()
+    if not text:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Please specify a message like this: /private [message]', reply_to_message_id=update.effective_message.message_id)
+        return
+    user_data = loader.update_user_data(update)
+    old_conversation_id = reset_conversation(user_data, delete=False)
+    message = get_response(user_data, text)
+    temp_conversation_id = user_data.chatbot.current_conversation
+    user_data.chatbot.change_conversation(old_conversation_id)
+    user_data.chatbot.delete_conversation(temp_conversation_id)
+    for part in textwrap.wrap(message, 3500, expand_tabs=False, replace_whitespace=False, break_long_words=False, break_on_hyphens=False):
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=part, reply_to_message_id=update.effective_message.message_id)
 
 
 async def whitelist_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -173,6 +210,16 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Unknown command')
 
 
+async def dev(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # user not whitelisted
+    if not auth(update):
+        return
+    # no chat or user associated with update
+    if not update.effective_chat or not update.effective_user:
+        return
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="dev is fiddling around - can't respond right now")
+
+
 def main():
     # Ensure logged in to hugchat
     loader.hugchat_login()
@@ -184,9 +231,11 @@ def main():
         return
     app = ApplicationBuilder().token(config['telegram_api_token']).build()
 
+
     # Telegram Handlers
     start_handler = CommandHandler('start', start)
     temp_handler = CommandHandler('temp', temp)
+    private_handler = CommandHandler('private', private)
     chatbot_new_handler = CommandHandler('new', chatbot_new)
     chatbot_delete_handler = CommandHandler('delete', chatbot_delete)
     whitelist_add_handler = CommandHandler('add', whitelist_add)
@@ -195,8 +244,12 @@ def main():
     message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), answer)
     unknown_handler = MessageHandler(filters.COMMAND, unknown)
 
+    # dev_handler = MessageHandler(filters.TEXT, dev)
+    # app.add_handler(dev_handler)
+
     app.add_handler(start_handler)
     app.add_handler(temp_handler)
+    app.add_handler(private_handler)
     app.add_handler(chatbot_new_handler)
     app.add_handler(chatbot_delete_handler)
     app.add_handler(whitelist_add_handler)

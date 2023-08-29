@@ -202,13 +202,10 @@ def delete_log(user_id: int, conversation_id: str) -> bool:
     """Deletes the log file of the given user id and conversation id and returns whether it was successful."""
     subdir = __find_log_subdir(user_id)
     if not subdir:
-        print('no subdir')
         return False
     with lock:
         path = os.path.join(LOG_DIR, subdir, f'{conversation_id}.log')
         if not os.path.isfile(path):
-            print('no file')
-            print(path)
             return False
         os.remove(path)
     return True
