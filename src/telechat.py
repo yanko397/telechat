@@ -6,6 +6,7 @@ from loader import auth, admin
 
 from telegram import Update
 from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTypes, CommandHandler
+from hugchat import hugchat
 
 from user_data import UserData
 
@@ -14,13 +15,13 @@ os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MAX_RESPONSE_TRIES = 5
 
 
-def get_response(user_data: UserData, text: str) -> str:
+def get_response(chatbot: hugchat.ChatBot, temperature: float, text: str) -> str:
     # try to get a response from the chatbot
     tries_remaining = MAX_RESPONSE_TRIES
     message = ''
     while not message and tries_remaining:
         try:
-            message = str(user_data.chatbot.chat(text, temperature=user_data.temperature))
+            message = str(chatbot.chat(text, temperature=temperature))
         except Exception as e:
             print(e)
             tries_remaining -= 1
@@ -67,11 +68,11 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     user_data = loader.update_user_data(update)
-    message = get_response(user_data, update.effective_message.text)
+    message = get_response(user_data.chatbot, user_data.temperature, update.effective_message.text)
     # send response back to telegram
     loader.log(update, title='hugchat', message=message)
-    for part in textwrap.wrap(message, 3500, expand_tabs=False, replace_whitespace=False, break_long_words=False, break_on_hyphens=False):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=part, reply_to_message_id=update.effective_message.message_id)
+    for part_index, part in enumerate(textwrap.wrap(message, 3500, expand_tabs=False, replace_whitespace=False, break_long_words=False, break_on_hyphens=False)):
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=part, reply_to_message_id=update.effective_message.message_id if part_index == 0 else None)
 
 
 async def temp(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -145,12 +146,56 @@ async def private(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user_data = loader.update_user_data(update)
     old_conversation_id = reset_conversation(user_data, delete=False)
-    message = get_response(user_data, text)
+    message = get_response(user_data.chatbot, user_data.temperature, text)
     temp_conversation_id = user_data.chatbot.current_conversation
     user_data.chatbot.change_conversation(old_conversation_id)
     user_data.chatbot.delete_conversation(temp_conversation_id)
-    for part in textwrap.wrap(message, 3500, expand_tabs=False, replace_whitespace=False, break_long_words=False, break_on_hyphens=False):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=part, reply_to_message_id=update.effective_message.message_id)
+    for part_index, part in enumerate(textwrap.wrap(message, 3500, expand_tabs=False, replace_whitespace=False, break_long_words=False, break_on_hyphens=False)):
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=part, reply_to_message_id=update.effective_message.message_id if part_index == 0 else None)
+
+
+async def bottalk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # user not whitelisted
+    if not auth(update):
+        return
+    # no message
+    if not update.effective_message or not update.effective_message.text:
+        return
+    # no chat or user associated with update
+    if not update.effective_chat or not update.effective_user:
+        return
+    text = update.effective_message.text.removeprefix('/bottalk').strip()
+    text = text[text.find(' '):].strip() if ' ' in text else ''
+    iterations: int = int(context.args[0]) if context.args and context.args[0].isdigit() else 0
+    if not iterations or not text:
+        err = ('Please specify a message like this:\n/bottalk [iterations] [message]\n'
+            'where [iterations] is a number that specifies how many messages will be exchanged overall - '
+            'e.g. for "4" both bots would get to write 2 messages each. '
+            'This happens completely outside of your current conversation.')
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=err, reply_to_message_id=update.effective_message.message_id)
+        return
+    if iterations > 10:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Please specify a number of iterations between 1 and 10', reply_to_message_id=update.effective_message.message_id)
+        return
+
+    chatbots: list[hugchat.ChatBot] = [loader.new_chatbot() for _ in range(2)]
+    logfile = f'bottalk_{chatbots[0].current_conversation}_{chatbots[1].current_conversation}'
+    loader.log(update, filename=logfile, message=text)
+
+    last_message_id = update.effective_message.message_id
+    for i in range(iterations):
+        chatbot = chatbots[i % 2]
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
+        text = get_response(chatbot, 0.9, text)
+        botname = f'Bot {i % 2 + 1}'
+        telegram_text = f'[{botname} | Iteration {i + 1}/{iterations}]\n\n' + text
+        loader.log(update, filename=logfile, message=text, title=botname)
+        for part_index, part in enumerate(textwrap.wrap(telegram_text, 3500, expand_tabs=False, replace_whitespace=False, break_long_words=False, break_on_hyphens=False)):
+            message = await context.bot.send_message(chat_id=update.effective_chat.id, text=part, reply_to_message_id=last_message_id if part_index == 0 else None)
+            last_message_id = message.message_id
+
+    for chatbot in chatbots:
+        chatbot.delete_conversation(chatbot.current_conversation)
 
 
 async def whitelist_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -238,9 +283,12 @@ def main():
     private_handler = CommandHandler('private', private)
     chatbot_new_handler = CommandHandler('new', chatbot_new)
     chatbot_delete_handler = CommandHandler('delete', chatbot_delete)
+    bottalk_handler = CommandHandler('bottalk', bottalk)
+
     whitelist_add_handler = CommandHandler('add', whitelist_add)
     whitelist_remove_handler = CommandHandler('remove', whitelist_remove)
     whitelist_list_handler = CommandHandler('list', whitelist_list)
+
     message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), answer)
     unknown_handler = MessageHandler(filters.COMMAND, unknown)
 
@@ -252,9 +300,12 @@ def main():
     app.add_handler(private_handler)
     app.add_handler(chatbot_new_handler)
     app.add_handler(chatbot_delete_handler)
+    app.add_handler(bottalk_handler)
+
     app.add_handler(whitelist_add_handler)
     app.add_handler(whitelist_remove_handler)
     app.add_handler(whitelist_list_handler)
+
     app.add_handler(message_handler)
     app.add_handler(unknown_handler)
 
