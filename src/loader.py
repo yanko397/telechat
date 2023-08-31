@@ -12,7 +12,7 @@ from telegram import Update
 
 from user_data import UserData
 
-TELEGRAM_CONFIG_FILE = 'config.json'
+CONFIG_FILE = 'config.json'
 ALLOWED_USERS_FILE = 'allowed_users.json'
 ADMINS_FILE = 'admins.json'
 
@@ -54,10 +54,10 @@ def auth(update: Update, warning: bool = True):
     return allowed
 
 
-def load_telegram_config() -> dict:
-    if not os.path.exists(TELEGRAM_CONFIG_FILE):
+def load_config() -> dict:
+    if not os.path.exists(CONFIG_FILE):
         return {}
-    with lock, open(TELEGRAM_CONFIG_FILE, encoding='utf-8') as f:
+    with lock, open(CONFIG_FILE, encoding='utf-8') as f:
         return json.load(f)
 
 
@@ -225,6 +225,7 @@ def log(update: Update, *, filename: str = '', message: str = '', title: str = '
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     # find best filename, title and message in parameters
     name = ''
+    temp = ''
     user_data = None
     if update and update.effective_user:
         first_name = update.effective_user.first_name or ''
@@ -234,6 +235,7 @@ def log(update: Update, *, filename: str = '', message: str = '', title: str = '
         title = title or update.effective_user.username or str(update.effective_user.id) + (f' ({name})' if name else '')
         if auth(update, warning=False):
             user_data = update_user_data(update)
+            temp = f' (temp={user_data.temperature})'
     if update and update.message:
         message = message or update.message.text or ''
     filename = filename or (user_data.chatbot.current_conversation if user_data else '') or 'unknown'
@@ -244,5 +246,5 @@ def log(update: Update, *, filename: str = '', message: str = '', title: str = '
     with lock:
         os.makedirs(os.path.join(LOG_DIR, subdir), exist_ok=True)
         with open(os.path.join(LOG_DIR, subdir, f'{filename}.log'), 'a', encoding='utf-8') as f:
-            f.write(f'{timestamp} ================ {title} ================\n')
+            f.write(f'{timestamp} ================ {title} ================{temp}\n')
             f.write(f'{message}\n')

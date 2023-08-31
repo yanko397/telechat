@@ -7,12 +7,16 @@ from loader import auth, admin
 from telegram import Update
 from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTypes, CommandHandler
 from hugchat import hugchat
+from deepl import Translator, TextResult
 
 from user_data import UserData
 
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 MAX_RESPONSE_TRIES = 5
+LANG_NAMES: str = '\n'.join(['BG - Bulgarian', 'CS - Czech', 'DA - Danish', 'DE - German', 'EL - Greek', 'EN-GB - English (British)', 'EN-US - English (American)', 'ES - Spanish', 'ET - Estonian', 'FI - Finnish', 'FR - French', 'HU - Hungarian', 'ID - Indonesian', 'IT - Italian', 'JA - Japanese', 'KO - Korean', 'LT - Lithuanian', 'LV - Latvian', 'NB - Norwegian (Bokmål)', 'NL - Dutch', 'PL - Polish', 'PT-BR - Portuguese (Brazilian)', 'PT-PT - Portuguese (all other Portuguese varieties)', 'RO - Romanian', 'RU - Russian', 'SK - Slovak', 'SL - Slovenian', 'SV - Swedish', 'TR - Turkish', 'UK - Ukrainian', 'ZH - Chinese (simplified)'])
+LANG_CODES = ['BG','CS','DA','DE','EL','EN-GB','EN-US','ES','ET','FI','FR','HU','ID','IT','JA','KO','LT','LV','NB','NL','PL','PT-BR','PT-PT','RO','RU','SK','SL','SV','TR','UK','ZH']
+
 
 
 def get_response(chatbot: hugchat.ChatBot, temperature: float, text: str) -> str:
@@ -68,10 +72,24 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
     user_data = loader.update_user_data(update)
-    message = get_response(user_data.chatbot, user_data.temperature, update.effective_message.text)
-    # send response back to telegram
+    user_text = update.effective_message.text
+    # translate to english
+    if user_data.language and user_data.translator:
+        response = user_data.translator.translate_text(user_text, target_lang='EN-US')
+        user_text = response.text if isinstance(response, TextResult) else response[0].text
+        detected_source_lang = response.detected_source_lang if isinstance(response, TextResult) else response[0].detected_source_lang
+        loader.log(update, title=f'translated from {detected_source_lang} to english', message=user_text)
+    # get response from chatbot
+    message = get_response(user_data.chatbot, user_data.temperature, user_text)
+    # translate back to original language
     loader.log(update, title='hugchat', message=message)
-    for part_index, part in enumerate(textwrap.wrap(message, 3500, expand_tabs=False, replace_whitespace=False, break_long_words=False, break_on_hyphens=False)):
+    if user_data.language and user_data.translator:
+        response = user_data.translator.translate_text(message, target_lang=user_data.language)
+        message = response.text if isinstance(response, TextResult) else response[0].text
+        loader.log(update, title=f'translated from english to {user_data.language}', message=message)
+    # send response back to telegram
+    message_wrap = textwrap.wrap(message, 3500, expand_tabs=False, replace_whitespace=False, break_long_words=False, break_on_hyphens=False)
+    for part_index, part in enumerate(message_wrap):
         await context.bot.send_message(chat_id=update.effective_chat.id, text=part, reply_to_message_id=update.effective_message.message_id if part_index == 0 else None)
 
 
@@ -198,6 +216,40 @@ async def bottalk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chatbot.delete_conversation(chatbot.current_conversation)
 
 
+async def translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # user not whitelisted
+    if not auth(update):
+        return
+    # no message
+    if not update.effective_message or not update.effective_message.text:
+        return
+    # no chat or user associated with update
+    if not update.effective_chat or not update.effective_user:
+        return
+    if not context.args:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Please specify a language like this: /translate [language]\n\npossible language codes:\n\n{LANG_NAMES}')
+        return
+    if context.args[0] == 'off':
+        user_data = loader.update_user_data(update)
+        user_data.language = None
+        loader.update_user_data(update)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Translation disabled')
+        return
+    if not context.args[0].upper() in LANG_CODES:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Unrecognized language code: {context.args[0]}\n\npossible language codes:\n\n{LANG_NAMES}')
+        return
+    user_data = loader.update_user_data(update)
+    if not user_data.translator:
+        config = loader.load_config()
+        if not config['deepl_api_token']:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"This bot doesn't have a translator installed. Please ask the creator of the bot to add one.")
+            return
+        user_data.translator = Translator(config['deepl_api_token'])
+    user_data.language = context.args[0].upper()
+    loader.update_user_data(update)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Language set to {user_data.language}. You can now write in your language and it will be translated to english before the Chatbot sees it. The answer from the bot will then be translated back to your language. You can disable this with /translate off')
+
+
 async def whitelist_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # user not admin
     if not admin(update):
@@ -270,7 +322,7 @@ def main():
     loader.hugchat_login()
 
     # Telegram
-    config = loader.load_telegram_config()
+    config = loader.load_config()
     if not config['telegram_api_token']:
         print('No telegram api token found. Please create a telegram bot and add the token to config.json')
         return
@@ -284,6 +336,7 @@ def main():
     chatbot_new_handler = CommandHandler('new', chatbot_new)
     chatbot_delete_handler = CommandHandler('delete', chatbot_delete)
     bottalk_handler = CommandHandler('bottalk', bottalk)
+    translate_handler = CommandHandler('translate', translate)
 
     whitelist_add_handler = CommandHandler('add', whitelist_add)
     whitelist_remove_handler = CommandHandler('remove', whitelist_remove)
@@ -301,6 +354,7 @@ def main():
     app.add_handler(chatbot_new_handler)
     app.add_handler(chatbot_delete_handler)
     app.add_handler(bottalk_handler)
+    app.add_handler(translate_handler)
 
     app.add_handler(whitelist_add_handler)
     app.add_handler(whitelist_remove_handler)
