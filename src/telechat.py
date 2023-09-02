@@ -36,7 +36,7 @@ def get_response(chatbot: hugchat.ChatBot, temperature: float, text: str) -> str
             print(e)
             tries_remaining -= 1
     if not message and not tries_remaining:
-        message = f'Nur gibberish als Antwort auch nach {MAX_RESPONSE_TRIES} Versuchen.. Sorry :( Kannst es aber gerne nochmal versuchen'
+        message = f'Only gibberish as response even after {MAX_RESPONSE_TRIES} tries.. The model is probably overloaded.. Sorry :( You can try again though'
     return message
 
 
@@ -336,6 +336,7 @@ async def voice_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
 
+    # get transcript
     file = await context.bot.get_file(update.effective_message.voice.file_id)
     with io.BytesIO() as audio:  # TODO i don't know if this is a good idea to just hold the whole file in memory
         await file.download_to_memory(audio)
@@ -344,35 +345,77 @@ async def voice_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Could not transcribe voice message')
         return
 
+    # translate transcript to english
     config = loader.load_config()
-    if not config.get('deepl_api_token') and spoken_language != 'en':
+    if not config.get('deepl_api_token') and spoken_language != 'EN-US':
         error_text = f"The detected language is \"{spoken_language}\" but this bot doesn't have a translator installed. Please ask the creator of the bot to add one."
         await context.bot.send_message(chat_id=update.effective_chat.id, text=error_text)
         return
     translator = Translator(config['deepl_api_token'])
-    transcript_translated, _ = translate_text(transcript, target_lang='EN-US', translator=translator)
+    transcript_translated = transcript if spoken_language == 'EN-US' else translate_text(transcript, 'EN-US', translator)[0]
 
+    # get summary from chatbot
+    chatbot = loader.new_chatbot()
     text_for_bot = (f"The following text is an automatic transcript of a voice message, so it might not have the best quality."
                     f" Please write a short summary of that text."
-                    f" Don't answer with anything other than the summary. Transcript:\n\n{transcript_translated}")
-
-    chatbot = loader.new_chatbot()
+                    f" Answer with just the summary, no introductory words or anything."
+                    f" Transcript:"
+                    f"\n\n{transcript_translated}")
     message = get_response(chatbot, 0.9, text_for_bot)
     chatbot.delete_conversation(chatbot.current_conversation)
 
-    message_translated, _ = translate_text(message, target_lang=spoken_language, translator=translator)
+    # translate summary back to original language
+    message_translated = message if spoken_language == 'EN-US' else translate_text(message, spoken_language, translator)[0]
 
-    # all results of the process
+    # send transcript and summary to telegram
     final_message = f'Transcript (detected language: {spoken_language}):'
     final_message += f'\n{transcript}'
-    final_message += f'\n\nSummary from bot (translated to language of voice message):'
+    final_message += f'\n\nSummary (translated):'
     final_message += f'\n{message_translated}'
-
     await context.bot.send_message(chat_id=update.effective_chat.id, text=final_message)
 
 
 async def voice_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass
+    # user not whitelisted
+    if not auth(update):
+        return
+    # no voice message
+    if not update.effective_message or not update.effective_message.voice:
+        return
+    # no chat or user associated with update
+    if not update.effective_chat or not update.effective_user:
+        return
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
+
+    # get transcript
+    file = await context.bot.get_file(update.effective_message.voice.file_id)
+    with io.BytesIO() as audio:  # TODO i don't know if this is a good idea to just hold the whole file in memory
+        await file.download_to_memory(audio)
+        transcript, spoken_language = stt(audio.getvalue())
+    if not transcript:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Could not transcribe voice message')
+        return
+
+    # translate transcript to english
+    config = loader.load_config()
+    if not config.get('deepl_api_token') and spoken_language != 'EN-US':
+        error_text = f"The detected language is \"{spoken_language}\" but this bot doesn't have a translator installed. Please ask the creator of the bot to add one."
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=error_text)
+        return
+    translator = Translator(config['deepl_api_token'])
+    transcript_translated = transcript if spoken_language == 'EN-US' else translate_text(transcript, 'EN-US', translator)[0]
+
+    # get answer from chatbot
+    user_data = loader.update_user_data(update)
+    message = get_response(user_data.chatbot, 0.9, transcript_translated)
+
+    # send transcript and summary to telegram
+    final_message = f'Transcript (detected language: {spoken_language}):'
+    final_message += f'\n{transcript}'
+    final_message += f'\n\nAnswer from bot:'
+    final_message += f'\n{message}'
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=final_message)
+
 
 
 # async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
