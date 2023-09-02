@@ -368,10 +368,10 @@ async def voice_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_translated = message if spoken_language == 'EN-US' else translate_text(message, spoken_language, translator)[0]
 
     # send transcript and summary to telegram
-    final_message = f'Transcript (detected language: {spoken_language}):'
-    final_message += f'\n{transcript}'
-    final_message += f'\n\nSummary (translated):'
+    final_message = f'Summary{" (translated)" if spoken_language != "EN-US" else ""}:'
     final_message += f'\n{message_translated}'
+    final_message += f'\n\nTranscript (detected language: {spoken_language}):'
+    final_message += f'\n{transcript}'
     await context.bot.send_message(chat_id=update.effective_chat.id, text=final_message)
 
 
