@@ -1,3 +1,4 @@
 hugchat
 python-telegram-bot
 deepl
+deepgram-sdk

@@ -1,4 +1,5 @@
 {
     "telegram_api_token": "",
-    "deepl_api_token": ""
+    "deepl_api_token": "",
+    "deepgram_api_token": "",
 }

@@ -1,6 +1,8 @@
 from html import escape
+import io
 import os
 import textwrap
+from typing import Optional
 from uuid import uuid4
 
 import loader
@@ -11,6 +13,7 @@ from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTyp
 from telegram.constants import ParseMode
 from hugchat import hugchat
 from deepl import Translator, TextResult
+from deepgram import Deepgram
 
 from user_data import UserData
 
@@ -46,6 +49,27 @@ def reset_conversation(user_data: UserData, *, delete: bool) -> str:
     return old_conversation_id
 
 
+def translate_text(text: str, target_lang: str, translator: Translator) -> tuple[str, str]:
+    response = translator.translate_text(text, target_lang=target_lang)
+    user_text = response.text if isinstance(response, TextResult) else response[0].text
+    detected_source_lang = response.detected_source_lang if isinstance(response, TextResult) else response[0].detected_source_lang
+    return user_text, detected_source_lang
+
+
+def stt(audio: bytes) -> tuple[str, str]:
+    config = loader.load_config()
+    if not config.get('deepgram_api_token'):
+        return '', ''
+    dg = Deepgram(config['deepgram_api_token'])
+    source = {'buffer': audio, 'mimetype': 'audio/ogg'}
+    options = {'detect_language': True}
+    response = dg.transcription.sync_prerecorded(source, options) # type: ignore
+    transcript = response['results']['channels'][0]['alternatives'][0]['transcript'] # type: ignore
+    detected_language = response['results']['channels'][0]['detected_language'] # type: ignore
+    detected_language = 'EN-US' if detected_language == 'en' else detected_language.upper()
+    return transcript, detected_language
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # no chat or user associated with update
     if not update.effective_chat or not update.effective_user:
@@ -62,7 +86,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
 
 
-async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     loader.log(update)
     # user not whitelisted
     if not auth(update):
@@ -78,17 +102,14 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.effective_message.text
     # translate to english
     if user_data.language and user_data.translator:
-        response = user_data.translator.translate_text(user_text, target_lang='EN-US')
-        user_text = response.text if isinstance(response, TextResult) else response[0].text
-        detected_source_lang = response.detected_source_lang if isinstance(response, TextResult) else response[0].detected_source_lang
+        user_text, detected_source_lang = translate_text(user_text, target_lang='EN-US', translator=user_data.translator)
         loader.log(update, title=f'translated from {detected_source_lang} to english', message=user_text)
     # get response from chatbot
     message = get_response(user_data.chatbot, user_data.temperature, user_text)
     # translate back to original language
     loader.log(update, title='hugchat', message=message)
     if user_data.language and user_data.translator:
-        response = user_data.translator.translate_text(message, target_lang=user_data.language)
-        message = response.text if isinstance(response, TextResult) else response[0].text
+        message, _ = translate_text(message, target_lang=user_data.language, translator=user_data.translator)
         loader.log(update, title=f'translated from english to {user_data.language}', message=message)
     # send response back to telegram
     message_wrap = textwrap.wrap(message, 3500, expand_tabs=False, replace_whitespace=False, break_long_words=False, break_on_hyphens=False)
@@ -244,7 +265,7 @@ async def translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = loader.update_user_data(update)
     if not user_data.translator:
         config = loader.load_config()
-        if not config['deepl_api_token']:
+        if not config.get('deepl_api_token'):
             await context.bot.send_message(chat_id=update.effective_chat.id, text=f"This bot doesn't have a translator installed. Please ask the creator of the bot to add one.")
             return
         user_data.translator = Translator(config['deepl_api_token'])
@@ -301,6 +322,57 @@ async def whitelist_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # list whitelist, send confirmation
     whitelist = '\n'.join(loader.load_allowed_users() or ['<empty>'])
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Whitelisted users:\n\n{whitelist}')
+
+
+async def voice_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # user not whitelisted
+    if not auth(update):
+        return
+    # no voice message
+    if not update.effective_message or not update.effective_message.voice:
+        return
+    # no chat or user associated with update
+    if not update.effective_chat or not update.effective_user:
+        return
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
+
+    file = await context.bot.get_file(update.effective_message.voice.file_id)
+    with io.BytesIO() as audio:  # TODO i don't know if this is a good idea to just hold the whole file in memory
+        await file.download_to_memory(audio)
+        transcript, spoken_language = stt(audio.getvalue())
+    if not transcript:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Could not transcribe voice message')
+        return
+
+    config = loader.load_config()
+    if not config.get('deepl_api_token') and spoken_language != 'en':
+        error_text = f"The detected language is \"{spoken_language}\" but this bot doesn't have a translator installed. Please ask the creator of the bot to add one."
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=error_text)
+        return
+    translator = Translator(config['deepl_api_token'])
+    transcript_translated, _ = translate_text(transcript, target_lang='EN-US', translator=translator)
+
+    text_for_bot = (f"The following text is an automatic transcript of a voice message, so it might not have the best quality."
+                    f" Please write a short summary of that text."
+                    f" Don't answer with anything other than the summary. Transcript:\n\n{transcript_translated}")
+
+    chatbot = loader.new_chatbot()
+    message = get_response(chatbot, 0.9, text_for_bot)
+    chatbot.delete_conversation(chatbot.current_conversation)
+
+    message_translated, _ = translate_text(message, target_lang=spoken_language, translator=translator)
+
+    # all results of the process
+    final_message = f'Transcript (detected language: {spoken_language}):'
+    final_message += f'\n{transcript}'
+    final_message += f'\n\nSummary from bot (translated to language of voice message):'
+    final_message += f'\n{message_translated}'
+
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=final_message)
+
+
+async def voice_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pass
 
 
 # async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -381,8 +453,10 @@ def main():
     app.add_handler(CommandHandler('remove', whitelist_remove))
     app.add_handler(CommandHandler('list', whitelist_list))
 
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), answer))
+    app.add_handler(MessageHandler(filters.VOICE & filters.FORWARDED, voice_summary))
+    app.add_handler(MessageHandler(filters.VOICE, voice_prompt))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
+    app.add_handler(MessageHandler(filters.TEXT, prompt))
 
     # Run
     print('starting polling..')
