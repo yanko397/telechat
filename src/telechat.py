@@ -395,6 +395,7 @@ async def voice_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not transcript:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Could not transcribe voice message')
         return
+    loader.log(update, title='voice message transcript', message=transcript)
 
     # translate transcript to english
     config = loader.load_config()
@@ -407,7 +408,8 @@ async def voice_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # get answer from chatbot
     user_data = loader.update_user_data(update)
-    message = get_response(user_data.chatbot, 0.9, transcript_translated)
+    message = get_response(user_data.chatbot, user_data.temperature, transcript_translated)
+    loader.log(update, title='hugchat', message=message)
 
     # send transcript and summary to telegram
     final_message = f'Transcript (detected language: {spoken_language}):'
