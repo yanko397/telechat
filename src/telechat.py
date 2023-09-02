@@ -1,11 +1,14 @@
+from html import escape
 import os
 import textwrap
+from uuid import uuid4
 
 import loader
 from loader import auth, admin
 
-from telegram import Update
-from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTypes, CommandHandler
+from telegram import InlineQueryResultArticle, InputTextMessageContent, Update
+from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTypes, CommandHandler, InlineQueryHandler
+from telegram.constants import ParseMode
 from hugchat import hugchat
 from deepl import Translator, TextResult
 
@@ -300,6 +303,37 @@ async def whitelist_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Whitelisted users:\n\n{whitelist}')
 
 
+# async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+#     if not update.inline_query or not update.inline_query.query:
+#         return
+#     results = [
+#         InlineQueryResultArticle(
+#             id=str(uuid4()),
+#             title="Caps",
+#             input_message_content=InputTextMessageContent(update.inline_query.query.upper()),
+#         ),
+#         InlineQueryResultArticle(
+#             id=str(uuid4()),
+#             title="Bold",
+#             input_message_content=InputTextMessageContent(
+#                 f"<b>{escape(update.inline_query.query)}</b>", parse_mode=ParseMode.HTML
+#             ),
+#         ),
+#         InlineQueryResultArticle(
+#             id=str(uuid4()),
+#             title="Italic",
+#             input_message_content=InputTextMessageContent(
+#                 f"<i>{escape(update.inline_query.query)}</i>", parse_mode=ParseMode.HTML
+#             ),
+#         ),
+#     ]
+
+#     await update.inline_query.answer(results)
+#     await context.bot.send_message(chat_id=update.effective_chat.id, text=update.inline_query.query.upper())
+#     if update.message:
+#         await update.message.reply_text(update.inline_query.query.upper())
+
+
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # no chat associated with update
     if not update.effective_chat:
@@ -330,42 +364,29 @@ def main():
 
 
     # Telegram Handlers
-    start_handler = CommandHandler('start', start)
-    temp_handler = CommandHandler('temp', temp)
-    private_handler = CommandHandler('private', private)
-    chatbot_new_handler = CommandHandler('new', chatbot_new)
-    chatbot_delete_handler = CommandHandler('delete', chatbot_delete)
-    bottalk_handler = CommandHandler('bottalk', bottalk)
-    translate_handler = CommandHandler('translate', translate)
 
-    whitelist_add_handler = CommandHandler('add', whitelist_add)
-    whitelist_remove_handler = CommandHandler('remove', whitelist_remove)
-    whitelist_list_handler = CommandHandler('list', whitelist_list)
+    # app.add_handler(MessageHandler(filters.TEXT, dev))
 
-    message_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), answer)
-    unknown_handler = MessageHandler(filters.COMMAND, unknown)
+    # app.add_handler(InlineQueryHandler(inline_query))
 
-    # dev_handler = MessageHandler(filters.TEXT, dev)
-    # app.add_handler(dev_handler)
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(CommandHandler('temp', temp))
+    app.add_handler(CommandHandler('private', private))
+    app.add_handler(CommandHandler('new', chatbot_new))
+    app.add_handler(CommandHandler('delete', chatbot_delete))
+    app.add_handler(CommandHandler('bottalk', bottalk))
+    app.add_handler(CommandHandler('translate', translate))
 
-    app.add_handler(start_handler)
-    app.add_handler(temp_handler)
-    app.add_handler(private_handler)
-    app.add_handler(chatbot_new_handler)
-    app.add_handler(chatbot_delete_handler)
-    app.add_handler(bottalk_handler)
-    app.add_handler(translate_handler)
+    app.add_handler(CommandHandler('add', whitelist_add))
+    app.add_handler(CommandHandler('remove', whitelist_remove))
+    app.add_handler(CommandHandler('list', whitelist_list))
 
-    app.add_handler(whitelist_add_handler)
-    app.add_handler(whitelist_remove_handler)
-    app.add_handler(whitelist_list_handler)
-
-    app.add_handler(message_handler)
-    app.add_handler(unknown_handler)
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), answer))
+    app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
     # Run
     print('starting polling..')
-    app.run_polling()
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == '__main__':
